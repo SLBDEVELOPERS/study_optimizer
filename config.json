@@ -1,0 +1,18 @@
+{
+  "esp32_url": "http://192.168.1.100",
+  "camera_index": 0,
+  "posture_sensitivity": 15,
+  "fatigue_sensitivity": 22,
+  "fatigue_alert": true,
+  "silent_mode": false,
+  "auto_fan": true,
+  "auto_lamp": true,
+  "auto_mode": true,
+  "break_reminder_minutes": 45,
+  "startup_auto_launch": false,
+  "minimize_to_tray": true,
+  "default_temperature_c": 30.0,
+  "default_lamp_brightness": 65,
+  "device_wifi_ssid": "",
+  "device_wifi_password": ""
+}

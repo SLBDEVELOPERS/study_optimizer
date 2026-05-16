@@ -2,3 +2,14 @@ pip install -r requirements.txt
 python main.py
 
 pip install mediapipe opencv-python numpy requests pyserial
+
+
+
+
+///latest
+cd "D:\python projects\study_optimizer"
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python main.py

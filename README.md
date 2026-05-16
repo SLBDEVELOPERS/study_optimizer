@@ -116,11 +116,27 @@ Alerts are throttled using cooldown values in the `Config` dataclass.
 ```text
 study_optimizer/
 |-- main.py
+|-- config.py
+|-- camera/
+|   |-- posture_analyzer.py
+|   `-- face_analyzer.py
+|-- device/
+|   |-- esp32_client.py
+|   `-- device_pairing.py
+|-- ui/
+|   |-- main_window.py
+|   `-- dashboard.py
+|-- data/
+|   |-- session_logger.py
+|   `-- reports.py
+|-- models/
+|   |-- pose_landmarker_full.task
+|   `-- face_landmarker.task
+|-- assets/
+|   `-- logo.png
 |-- requirements.txt
-|-- pose_landmarker_full.task
-|-- face_landmarker.task
 |-- note.txt
-|-- README.md
+`-- README.md
 ```
 
 ## Notes
