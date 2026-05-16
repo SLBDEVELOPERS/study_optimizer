@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QStackedWidget,
@@ -122,16 +123,22 @@ class AlertManager:
 class SectionFrame(QFrame):
     def __init__(self, title: str, subtitle: str = ""):
         super().__init__()
-        self.setStyleSheet("QFrame {background: white; border: 1px solid #D9E0EA; border-radius: 18px;}")
+        self.setStyleSheet(
+            "QFrame {"
+            "background: rgba(255, 255, 255, 0.84);"
+            "border: 1px solid rgba(15, 23, 42, 0.06);"
+            "border-radius: 26px;"
+            "}"
+        )
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(14)
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 20px; font-weight: 800; color: #142033;")
+        title_label.setStyleSheet("font-size: 22px; font-weight: 700; color: #101828;")
         layout.addWidget(title_label)
         if subtitle:
             subtitle_label = QLabel(subtitle)
-            subtitle_label.setStyleSheet("font-size: 13px; color: #6D7787;")
+            subtitle_label.setStyleSheet("font-size: 13px; color: #8A94A6; font-weight: 500;")
             layout.addWidget(subtitle_label)
         self.body = layout
 
@@ -144,35 +151,59 @@ class CameraPreviewPage(QWidget):
         root.setSpacing(18)
 
         preview_frame = SectionFrame("Camera Preview", "Live processed feed with posture and face overlays")
-        self.preview_label = QLabel("Camera starting...")
-        self.preview_label.setMinimumSize(960, 540)
-        self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setStyleSheet("background: #0C1220; color: #9AA7B8; border-radius: 14px;")
-        preview_frame.body.addWidget(self.preview_label)
+        preview_shell = QHBoxLayout()
+        preview_shell.setSpacing(18)
 
-        stats = QGridLayout()
-        stats.setHorizontalSpacing(14)
-        stats.setVerticalSpacing(14)
-        self.posture_label = QLabel("Posture: Good")
-        self.fatigue_label = QLabel("Fatigue: Alert")
-        self.light_label = QLabel("Room Light: Good")
-        self.temp_label = QLabel("Temperature: 30.0 C")
-        self.fps_label = QLabel("FPS: 0")
-        self.command_label = QLabel("Device: Idle")
-        for index, widget in enumerate(
-            [
-                self.posture_label,
-                self.fatigue_label,
-                self.light_label,
-                self.temp_label,
-                self.fps_label,
-                self.command_label,
-            ]
-        ):
-            widget.setStyleSheet("font-size: 14px; font-weight: 600; color: #334155;")
-            stats.addWidget(widget, index // 3, index % 3)
-        preview_frame.body.addLayout(stats)
+        self.preview_label = QLabel("Camera starting...")
+        self.preview_label.setMinimumSize(720, 420)
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0F172A, stop:1 #1E293B);"
+            "color: #CBD5E1; border-radius: 22px; border: 1px solid rgba(255,255,255,0.08);"
+        )
+        preview_shell.addWidget(self.preview_label, 3)
+
+        insights = QFrame()
+        insights.setMinimumWidth(250)
+        insights.setStyleSheet(
+            "QFrame {background: rgba(248,250,252,0.9); border: 1px solid rgba(15,23,42,0.06); border-radius: 22px;}"
+        )
+        insights_layout = QVBoxLayout(insights)
+        insights_layout.setContentsMargins(18, 18, 18, 18)
+        insights_layout.setSpacing(12)
+
+        insight_title = QLabel("Live Insights")
+        insight_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #101828;")
+        insights_layout.addWidget(insight_title)
+
+        self.posture_label = self._info_chip("Posture", "Good")
+        self.fatigue_label = self._info_chip("Fatigue", "Alert")
+        self.light_label = self._info_chip("Room Light", "Good")
+        self.temp_label = self._info_chip("Temperature", "30.0 C")
+        self.fps_label = self._info_chip("Frame Rate", "0 fps")
+        self.command_label = self._info_chip("Device", "Idle")
+        for widget in [
+            self.posture_label,
+            self.fatigue_label,
+            self.light_label,
+            self.temp_label,
+            self.fps_label,
+            self.command_label,
+        ]:
+            insights_layout.addWidget(widget)
+        insights_layout.addStretch()
+
+        preview_shell.addWidget(insights, 1)
+        preview_frame.body.addLayout(preview_shell)
         root.addWidget(preview_frame)
+
+    def _info_chip(self, label: str, value: str) -> QLabel:
+        widget = QLabel(f"{label}\n{value}")
+        widget.setStyleSheet(
+            "background: white; border: 1px solid rgba(15,23,42,0.06); border-radius: 16px; padding: 12px 14px;"
+            "font-size: 14px; font-weight: 600; color: #475467;"
+        )
+        return widget
 
     def set_frame(self, image: QImage):
         pixmap = QPixmap.fromImage(image)
@@ -180,12 +211,12 @@ class CameraPreviewPage(QWidget):
         self.preview_label.setPixmap(scaled)
 
     def update_metrics(self, metrics: dict):
-        self.posture_label.setText(f"Posture: {metrics['posture_status']}")
-        self.fatigue_label.setText(f"Fatigue: {metrics['fatigue_status']}")
-        self.light_label.setText(f"Room Light: {metrics['room_light']} ({metrics['room_light_level']}%)")
-        self.temp_label.setText(f"Temperature: {metrics['temperature_c']:.1f} C")
-        self.fps_label.setText(f"FPS: {metrics['fps']:.0f}")
-        self.command_label.setText(f"Device: {metrics['last_command_status']}")
+        self.posture_label.setText(f"Posture\n{metrics['posture_status']}")
+        self.fatigue_label.setText(f"Fatigue\n{metrics['fatigue_status']}")
+        self.light_label.setText(f"Room Light\n{metrics['room_light']} ({metrics['room_light_level']}%)")
+        self.temp_label.setText(f"Temperature\n{metrics['temperature_c']:.1f} C")
+        self.fps_label.setText(f"Frame Rate\n{metrics['fps']:.0f} fps")
+        self.command_label.setText(f"Device\n{metrics['last_command_status']}")
 
 
 class DevicePairingPage(QWidget):
@@ -211,8 +242,9 @@ class DevicePairingPage(QWidget):
         self.device_name_label = QLabel("ESP32 Desk Node")
         self.status_label = QLabel("Status: Simulation")
         self.http_info = QLabel("HTTP API: GET /ping, POST /command, GET /status, POST /settings")
-        self.http_info.setStyleSheet("font-size: 12px; color: #6D7787;")
+        self.http_info.setStyleSheet("font-size: 12px; color: #8A94A6;")
         self.pair_button = QPushButton("Pair Device")
+        self.pair_button.setObjectName("primary")
         self.sync_button = QPushButton("Sync Settings")
         self.refresh_button = QPushButton("Refresh Status")
 
@@ -302,6 +334,7 @@ class SettingsPage(QWidget):
         frame.body.addLayout(grid)
 
         self.apply_button = QPushButton("Save Settings")
+        self.apply_button.setObjectName("primary")
         frame.body.addWidget(self.apply_button, alignment=Qt.AlignLeft)
         root.addWidget(frame)
 
@@ -376,6 +409,7 @@ class ManualControlPage(QWidget):
         self.fan_button = QPushButton("Turn Fan OFF")
         self.posture_alert_button = QPushButton("Test Posture Alert")
         self.drowsy_alert_button = QPushButton("Test Drowsy Alert")
+        self.mode_button.setObjectName("primary")
         row.addWidget(self.mode_button)
         row.addWidget(self.silent_button)
         row.addWidget(self.fan_button)
@@ -473,11 +507,11 @@ class SmartStudyOptimizer(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(18)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(14)
 
         self.nav_list = QListWidget()
-        self.nav_list.setFixedWidth(220)
+        self.nav_list.setFixedWidth(190)
         self.nav_list.setSpacing(6)
         for label in [
             "Dashboard",
@@ -491,14 +525,20 @@ class SmartStudyOptimizer(QMainWindow):
         self.nav_list.setCurrentRow(0)
 
         nav_shell = QFrame()
-        nav_shell.setStyleSheet("QFrame {background: #132033; border-radius: 22px;}")
+        nav_shell.setStyleSheet(
+            "QFrame {"
+            "background: rgba(255, 255, 255, 0.74);"
+            "border: 1px solid rgba(15, 23, 42, 0.06);"
+            "border-radius: 30px;"
+            "}"
+        )
         nav_layout = QVBoxLayout(nav_shell)
-        nav_layout.setContentsMargins(18, 20, 18, 20)
-        nav_layout.setSpacing(18)
+        nav_layout.setContentsMargins(16, 18, 16, 18)
+        nav_layout.setSpacing(14)
         brand = QLabel("Study Optimizer")
-        brand.setStyleSheet("color: white; font-size: 24px; font-weight: 800;")
+        brand.setStyleSheet("color: #111827; font-size: 24px; font-weight: 700;")
         strap = QLabel("Product console")
-        strap.setStyleSheet("color: #9FB1C8; font-size: 13px;")
+        strap.setStyleSheet("color: #8A94A6; font-size: 13px; font-weight: 500;")
         nav_layout.addWidget(brand)
         nav_layout.addWidget(strap)
         nav_layout.addWidget(self.nav_list)
@@ -506,9 +546,15 @@ class SmartStudyOptimizer(QMainWindow):
         root.addWidget(nav_shell)
 
         content_shell = QFrame()
-        content_shell.setStyleSheet("QFrame {background: #F4F7FB; border-radius: 26px;}")
+        content_shell.setStyleSheet(
+            "QFrame {"
+            "background: rgba(255, 255, 255, 0.58);"
+            "border: 1px solid rgba(15, 23, 42, 0.04);"
+            "border-radius: 34px;"
+            "}"
+        )
         content_layout = QVBoxLayout(content_shell)
-        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setContentsMargins(24, 24, 24, 24)
 
         self.stack = QStackedWidget()
         self.dashboard_page = DashboardPage()
@@ -525,10 +571,18 @@ class SmartStudyOptimizer(QMainWindow):
             self.preview_page,
             self.manual_page,
         ]:
-            self.stack.addWidget(page)
+            self.stack.addWidget(self._wrap_page(page))
 
         content_layout.addWidget(self.stack)
         root.addWidget(content_shell, 1)
+
+    def _wrap_page(self, page: QWidget) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(page)
+        return scroll
 
     def _wire_events(self):
         self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -562,11 +616,11 @@ class SmartStudyOptimizer(QMainWindow):
     def apply_theme(self):
         self.setStyleSheet(
             """
-            QMainWindow { background: #E7EDF6; }
-            QLabel { color: #142033; }
+            QMainWindow { background: #EEF1F6; }
+            QLabel { color: #101828; }
             QListWidget {
                 background: transparent;
-                color: #C7D2E2;
+                color: #667085;
                 border: none;
                 outline: none;
                 font-size: 15px;
@@ -574,34 +628,83 @@ class SmartStudyOptimizer(QMainWindow):
             }
             QListWidget::item {
                 padding: 14px 16px;
-                border-radius: 14px;
+                border-radius: 16px;
+                margin: 2px 0;
             }
             QListWidget::item:selected {
-                background: #E9F0FF;
-                color: #132033;
+                background: rgba(10, 132, 255, 0.12);
+                color: #0A63C9;
+            }
+            QListWidget::item:hover:!selected {
+                background: rgba(15, 23, 42, 0.04);
+                color: #344054;
             }
             QPushButton {
-                background: #1F6FEB;
-                color: white;
-                border: none;
-                border-radius: 12px;
+                background: #FFFFFF;
+                color: #0F172A;
+                border: 1px solid rgba(15, 23, 42, 0.08);
+                border-radius: 14px;
                 padding: 10px 16px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #F8FAFC;
+                border: 1px solid rgba(15, 23, 42, 0.12);
+            }
+            QPushButton:pressed {
+                background: #EEF2F6;
+            }
+            QPushButton#primary {
+                background: #0A84FF;
+                color: white;
+                border: 1px solid rgba(10, 132, 255, 0.24);
                 font-weight: 700;
             }
-            QPushButton:hover { background: #185BCC; }
+            QPushButton#primary:hover {
+                background: #0077ED;
+            }
             QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
-                background: white;
-                border: 1px solid #D4DBE7;
-                border-radius: 12px;
-                padding: 8px 10px;
+                background: rgba(255, 255, 255, 0.92);
+                border: 1px solid rgba(15, 23, 42, 0.08);
+                border-radius: 14px;
+                padding: 9px 12px;
                 font-size: 14px;
+                color: #0F172A;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
+                border: 1px solid rgba(10, 132, 255, 0.45);
+                background: #FFFFFF;
+            }
+            QCheckBox {
+                spacing: 10px;
+                color: #344054;
+                font-size: 14px;
+                font-weight: 500;
             }
             QHeaderView::section {
-                background: #EEF3F9;
-                color: #415066;
+                background: rgba(15, 23, 42, 0.04);
+                color: #667085;
                 font-weight: 700;
                 border: none;
-                padding: 8px;
+                padding: 10px;
+            }
+            QTableWidget {
+                gridline-color: rgba(15, 23, 42, 0.06);
+                selection-background-color: rgba(10, 132, 255, 0.10);
+                selection-color: #0F172A;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 10px;
+                margin: 6px 0 6px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(15, 23, 42, 0.12);
+                min-height: 32px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
             """
         )
