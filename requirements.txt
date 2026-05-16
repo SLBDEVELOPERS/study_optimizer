@@ -1,0 +1,18 @@
+# Smart Study/Work Environment Optimizer
+# Python Dependencies
+# ─────────────────────────────────────────
+# Python 3.9 / 3.10 / 3.11 / 3.12 compatible
+# Uses NEW MediaPipe Tasks API (not deprecated mp.solutions.*)
+
+opencv-python>=4.8.0
+mediapipe>=0.10.14        # Tasks API stable from 0.10.x
+numpy>=1.24.0
+pyserial>=3.5
+requests>=2.28.0
+
+# NOTE: Model files are auto-downloaded on first run:
+#   pose_landmarker_full.task  (~25 MB)
+#   face_landmarker.task       (~18 MB)
+# Or download manually:
+#   https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task
+#   https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
