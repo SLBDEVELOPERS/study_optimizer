@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Smart Desk Hub - PC Software UI/UX</title>
+  <link rel="stylesheet" href="./modern_study_optimizer.css">
+</head>
+<body>
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">
+          <div class="logo-inner"></div>
+        </div>
+        <span class="logo-text">AI Smart Desk Hub</span>
+      </div>
+
+      <nav class="sidebar-menu">
+        <button class="nav-item active" data-tab="dashboard">
+          <span class="nav-icon">DB</span>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="posture">
+          <span class="nav-icon">PT</span>
+          <span>Posture</span>
+        </button>
+        <button class="nav-item" data-tab="environment">
+          <span class="nav-icon">EN</span>
+          <span>Environment</span>
+        </button>
+        <button class="nav-item" data-tab="alerts">
+          <span class="nav-icon">AL</span>
+          <span class="badge" id="alerts-badge">0</span>
+          <span>Alerts</span>
+        </button>
+        <button class="nav-item" data-tab="history">
+          <span class="nav-icon">HS</span>
+          <span>History</span>
+        </button>
+        <button class="nav-item" data-tab="analytics">
+          <span class="nav-icon">AN</span>
+          <span>Analytics</span>
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <span class="nav-icon">ST</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-esp-panel">
+        <div class="esp-header">
+          <span class="esp-title">ESP32 Hub</span>
+          <span class="esp-status-dot connected" id="esp-status-dot"></span>
+        </div>
+        <div class="esp-details">
+          <div class="detail-row">
+            <span class="detail-label">Status</span>
+            <span class="detail-val text-green" id="esp-status-text">Connected</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Transport</span>
+            <span class="detail-val text-dim" id="sideTransport">HTTP</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Mode</span>
+            <span class="detail-val text-dim" id="sideMode">Auto</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content-wrapper">
+      <header class="app-header">
+        <div class="header-left">
+          <h1 id="screen-title">Dashboard (Home)</h1>
+        </div>
+        <div class="header-right">
+          <div class="system-time" id="system-time">00:00:00 | ---</div>
+          <div class="connection-pill" id="connection-pill">
+            <span class="pulse-dot"></span>
+            <span id="connectionBadge">CONNECTED</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="panels-container">
+        <section id="panel-dashboard" class="tab-panel active">
+          <div class="dashboard-grid">
+            <div class="card card-posture-status">
+              <div class="card-header">
+                <h3>Posture Status</h3>
+                <span class="card-subtitle">Real-time posture feedback</span>
+              </div>
+              <div class="card-body posture-status-body">
+                <div class="posture-svg-container">
+                  <svg id="posture-svg" viewBox="0 0 100 120" width="100" height="120">
+                    <path d="M 15 85 L 35 85 M 25 85 L 25 95 M 20 95 L 30 95" stroke="var(--border-color)" stroke-width="2" stroke-linecap="round" fill="none"/>
+                    <rect x="10" y="55" width="20" height="28" rx="2" stroke="var(--border-color)" stroke-width="2" fill="none"/>
+                    <circle cx="65" cy="30" r="8" id="dashboard-posture-head" fill="none" stroke="var(--text-green)" stroke-width="2.5"/>
+                    <path d="M 65 38 L 65 70 L 45 95" id="dashboard-posture-spine" fill="none" stroke="var(--text-green)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M 65 46 L 50 62 M 50 62 L 25 62" fill="none" stroke="var(--text-green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M 65 70 L 40 70 M 40 70 L 40 95" fill="none" stroke="var(--text-green)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="posture-status-desc">
+                  <div class="status-badge good" id="dashboard-posture-badge">GOOD POSTURE</div>
+                  <p class="status-msg" id="dashboard-posture-msg">Keep it up!</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-env-overview">
+              <div class="card-header">
+                <h3>Environment Overview</h3>
+                <span class="card-subtitle">Current desk conditions</span>
+              </div>
+              <div class="card-body">
+                <div class="env-metrics-list">
+                  <div class="env-metric-item">
+                    <div class="metric-icon-title">
+                      <span class="icon-yellow">LI</span>
+                      <span>Light Intensity</span>
+                    </div>
+                    <div class="metric-values">
+                      <span class="metric-val" id="db-val-light">0%</span>
+                      <span class="metric-lbl text-green" id="db-light-state">Good</span>
+                    </div>
+                  </div>
+                  <div class="env-metric-item">
+                    <div class="metric-icon-title">
+                      <span class="icon-blue">TP</span>
+                      <span>Temperature</span>
+                    </div>
+                    <div class="metric-values">
+                      <span class="metric-val" id="db-val-temp">30.0 C</span>
+                      <span class="metric-lbl text-green">Normal</span>
+                    </div>
+                  </div>
+                  <div class="env-metric-item">
+                    <div class="metric-icon-title">
+                      <span class="icon-blue">TM</span>
+                      <span>Session Time</span>
+                    </div>
+                    <div class="metric-values">
+                      <span class="metric-val" id="db-val-session">00:00:00</span>
+                      <span class="metric-lbl text-green">Running</span>
+                    </div>
+                  </div>
+                  <div class="env-metric-item">
+                    <div class="metric-icon-title">
+                      <span class="icon-green">DV</span>
+                      <span>Device Mode</span>
+                    </div>
+                    <div class="metric-values">
+                      <span class="metric-val" id="db-val-mode">Auto</span>
+                      <span class="metric-lbl text-green" id="db-device-state">Simulation</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-quick-controls">
+              <div class="card-header">
+                <h3>Quick Controls</h3>
+                <span class="card-subtitle">Hardware automation overrides</span>
+              </div>
+              <div class="card-body controls-body">
+                <div class="control-group">
+                  <div class="control-row">
+                    <div class="control-lbl">
+                      <span>LP</span>
+                      <span>Smart Lamp</span>
+                    </div>
+                    <label class="switch">
+                      <input type="checkbox" id="ctrl-lamp-toggle" checked>
+                      <span class="slider-switch"></span>
+                    </label>
+                  </div>
+                  <div class="range-container">
+                    <input type="range" id="ctrl-lamp-dimmer" min="0" max="100" value="65">
+                    <span class="range-val" id="ctrl-lamp-val">65%</span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <div class="control-row">
+                    <div class="control-lbl">
+                      <span>FN</span>
+                      <span>Cooling Fan</span>
+                    </div>
+                    <label class="switch">
+                      <input type="checkbox" id="ctrl-fan-toggle" checked>
+                      <span class="slider-switch"></span>
+                    </label>
+                  </div>
+                  <div class="range-container">
+                    <input type="range" id="ctrl-fan-speed" min="0" max="100" value="100" disabled>
+                    <span class="range-val" id="ctrl-fan-val">ON</span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <div class="control-row">
+                    <div class="control-lbl">
+                      <span>BZ</span>
+                      <span>Buzzer Alert</span>
+                    </div>
+                    <label class="switch">
+                      <input type="checkbox" id="ctrl-buzzer-toggle" checked>
+                      <span class="slider-switch"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="action-row">
+                  <button class="btn btn-outline" id="toggleModeBtn">Switch Mode</button>
+                  <button class="btn btn-outline" id="toggleFanBtn">Toggle Fan</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-real-time-sparklines">
+              <div class="card-header">
+                <h3>Real Time Monitoring</h3>
+                <span class="card-subtitle">Live sensor feeds</span>
+              </div>
+              <div class="card-body sparklines-grid">
+                <div class="sparkline-item">
+                  <span class="spark-title">Blink Trend</span>
+                  <div class="mini-chart" id="blinkChart"></div>
+                </div>
+                <div class="sparkline-item">
+                  <span class="spark-title">Light Trend</span>
+                  <div class="mini-chart" id="lightChart"></div>
+                </div>
+                <div class="sparkline-item">
+                  <span class="spark-title">Alert Activity</span>
+                  <div class="mini-chart" id="alertChart"></div>
+                </div>
+                <div class="sparkline-item">
+                  <span class="spark-title">Room Light Level</span>
+                  <div class="progress-label-row">
+                    <span id="lightPercent">0%</span>
+                  </div>
+                  <div class="progress-track"><div class="progress-fill" id="lightFill"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-system-status">
+              <div class="card-header">
+                <h3>System Status</h3>
+              </div>
+              <div class="card-body status-badges-row">
+                <div class="status-pill green">
+                  <span>ESP32-Connection</span>
+                  <strong class="pill-state" id="pill-esp32">Connected</strong>
+                </div>
+                <div class="status-pill green">
+                  <span>Camera Status</span>
+                  <strong class="pill-state" id="pill-camera">Live</strong>
+                </div>
+                <div class="status-pill green">
+                  <span>AI Detection</span>
+                  <strong class="pill-state" id="pill-ai">Alert</strong>
+                </div>
+                <div class="status-pill green" id="status-pill-fan">
+                  <span>Fan System</span>
+                  <strong class="pill-state" id="pill-fan">ON</strong>
+                </div>
+                <div class="status-pill green" id="status-pill-lamp">
+                  <span>Lamp System</span>
+                  <strong class="pill-state" id="pill-lamp">ON (65%)</strong>
+                </div>
+                <div class="status-pill green" id="status-pill-buzzer">
+                  <span>Buzzer</span>
+                  <strong class="pill-state" id="pill-buzzer">Ready</strong>
+                </div>
+                <div class="status-pill green">
+                  <span>Last Command</span>
+                  <strong class="pill-state" id="pill-command">Idle</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-posture" class="tab-panel">
+          <div class="posture-grid">
+            <div class="posture-left-col">
+              <div class="card card-camera-feed">
+                <div class="card-header">
+                  <h3>Live Camera Feed</h3>
+                  <div class="camera-status-badge red" id="camera-ai-overlay-badge">
+                    <span id="camera-ai-overlay-text">POSTURE ALERT</span>
+                  </div>
+                </div>
+                <div class="card-body camera-body">
+                  <div class="camera-container">
+                    <img id="cameraPreview" alt="Live webcam feed" class="webcam-img">
+                  </div>
+                </div>
+                <div class="action-row">
+                  <button class="btn btn-green" id="toggleCameraBtn">Pause Camera</button>
+                  <button class="btn btn-outline" id="snapshotBtn">Capture Snapshot</button>
+                </div>
+                <div class="status-msg" id="snapshotNote">No snapshot captured yet.</div>
+              </div>
+
+              <div class="posture-metrics-grid">
+                <div class="metric-card border-red">
+                  <span class="m-title">Posture Status</span>
+                  <span class="m-val text-red" id="postureStatus">Bad</span>
+                  <span class="m-status text-red" id="postureDetail">Shoulder angle high</span>
+                </div>
+                <div class="metric-card border-green">
+                  <span class="m-title">Fatigue Status</span>
+                  <span class="m-val text-green" id="fatigueStatus">Alert</span>
+                  <span class="m-status text-green" id="fatigueDetail">Blink stable</span>
+                </div>
+                <div class="metric-card border-green">
+                  <span class="m-title">Blink Rate</span>
+                  <span class="m-val text-green" id="blinkRate">0 /min</span>
+                  <span class="m-status text-green">Live</span>
+                </div>
+                <div class="metric-card border-green">
+                  <span class="m-title">Room Light</span>
+                  <span class="m-val text-green" id="camLight">Good</span>
+                  <span class="m-status text-green">Estimated</span>
+                </div>
+                <div class="metric-card border-green">
+                  <span class="m-title">Temperature</span>
+                  <span class="m-val text-green" id="camTemp">30.0 C</span>
+                  <span class="m-status text-green">Ambient</span>
+                </div>
+                <div class="metric-card border-red">
+                  <span class="m-title">Frame Rate</span>
+                  <span class="m-val text-red" id="camFps">0 fps</span>
+                  <span class="m-status text-red" id="cameraStatus">Waiting</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="posture-right-col">
+              <div class="card card-posture-analysis">
+                <div class="card-header">
+                  <h3>Posture Analysis</h3>
+                </div>
+                <div class="card-body analysis-body">
+                  <div class="gauge-chart-container">
+                    <div class="gauge-center-text">
+                      <span class="gauge-percentage text-red" id="dashboardPosture">GOOD</span>
+                      <span class="gauge-label" id="dashboardPostureDetail">Shoulders aligned</span>
+                    </div>
+                  </div>
+                  <span class="gauge-sub-lbl">Current Posture</span>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header">
+                  <h3>Live Insights</h3>
+                </div>
+                <div class="card-body insights-body">
+                  <ul class="insights-list">
+                    <li><div class="insight-bullet"></div><span id="camPosture">Good posture maintained.</span></li>
+                    <li><div class="insight-bullet"></div><span id="camFatigue">Fatigue alert level normal.</span></li>
+                    <li><div class="insight-bullet"></div><span id="cameraHeadline">Live wellness monitoring stream.</span></li>
+                    <li><div class="insight-bullet"></div><span id="camDevice">Waiting for device state.</span></li>
+                    <li><div class="insight-bullet"></div><span id="camSnapshot">No snapshot captured.</span></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-environment" class="tab-panel">
+          <div class="env-detailed-cards">
+            <div class="card card-env-metric yellow">
+              <div class="card-metric-top">
+                <div class="card-metric-info">
+                  <span class="icon-yellow">LT</span>
+                  <span>Light Level</span>
+                </div>
+                <span class="metric-status text-yellow" id="env-light-status">Good</span>
+              </div>
+              <div class="metric-value-large" id="env-detailed-light">0%</div>
+            </div>
+            <div class="card card-env-metric blue">
+              <div class="card-metric-top">
+                <div class="card-metric-info">
+                  <span class="icon-blue">TP</span>
+                  <span>Temperature</span>
+                </div>
+                <span class="metric-status text-blue">Normal</span>
+              </div>
+              <div class="metric-value-large" id="env-detailed-temp">30.0 C</div>
+            </div>
+            <div class="card card-env-metric green">
+              <div class="card-metric-top">
+                <div class="card-metric-info">
+                  <span class="icon-green">FN</span>
+                  <span>Fan Status</span>
+                </div>
+                <span class="metric-status text-green" id="env-fan-status-chip">On</span>
+              </div>
+              <div class="metric-value-large" id="env-detailed-fan">ON</div>
+            </div>
+            <div class="card card-env-metric blue">
+              <div class="card-metric-top">
+                <div class="card-metric-info">
+                  <span class="icon-blue">LP</span>
+                  <span>Lamp Brightness</span>
+                </div>
+                <span class="metric-status text-blue">Adaptive</span>
+              </div>
+              <div class="metric-value-large" id="env-detailed-lamp">65%</div>
+            </div>
+          </div>
+
+          <div class="env-middle-row">
+            <div class="card">
+              <div class="card-header">
+                <h3>Environment Controls</h3>
+                <div class="chart-actions">
+                  <button class="btn-tab small active">Live</button>
+                </div>
+              </div>
+              <div class="card-body automation-body">
+                <div class="automation-grid">
+                  <div class="automation-card">
+                    <div class="auto-header">
+                      <div class="auto-title">
+                        <span>LP</span>
+                        <span>Smart Lamp</span>
+                      </div>
+                      <span class="auto-status" id="env-lamp-status-txt">Status: ON</span>
+                    </div>
+                    <label class="range-label-sub">Brightness</label>
+                    <div class="range-container">
+                      <input type="range" id="env-lamp-slider" min="0" max="100" value="65">
+                      <span class="range-val" id="env-lamp-slider-val">65%</span>
+                    </div>
+                  </div>
+                  <div class="automation-card">
+                    <div class="auto-header">
+                      <div class="auto-title">
+                        <span>FN</span>
+                        <span>Cooling Fan</span>
+                      </div>
+                      <span class="auto-status" id="env-fan-status-txt">Status: ON</span>
+                    </div>
+                    <label class="range-label-sub">Power State</label>
+                    <div class="range-container">
+                      <input type="range" id="env-fan-slider" min="0" max="100" value="100" disabled>
+                      <span class="range-val" id="env-fan-slider-val">ON</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h3>Desk Summary</h3>
+              </div>
+              <div class="card-body advice-body">
+                <ul class="advice-list">
+                  <li><span class="text-yellow">Room light:</span> <span id="lightStatus">Good</span></li>
+                  <li><span class="text-blue">Temperature:</span> <span id="tempStatus">30.0 C</span></li>
+                  <li><span class="text-green">Fan detail:</span> <span id="fanDetail">Auto cooling active</span></li>
+                  <li><span class="text-blue">Lamp detail:</span> <span id="lampDetail">Auto brightness control</span></li>
+                  <li><span class="text-dim">Last command:</span> <span id="dashboardCommand">Waiting</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-alerts" class="tab-panel">
+          <div class="alerts-container">
+            <div class="card">
+              <div class="card-header">
+                <h3>Alerts & Manual Actions</h3>
+                <button class="btn btn-red-outline" id="btn-clear-all-alerts">Clear Status</button>
+              </div>
+              <div class="card-body">
+                <div class="alerts-list" id="alerts-list-container">
+                  <div class="alert-item yellow">
+                    <div class="alert-left">
+                      <div class="alert-details">
+                        <span class="alert-title">Current System Status</span>
+                        <span class="alert-desc" id="alert-current-status">Waiting for live state.</span>
+                      </div>
+                    </div>
+                    <span class="alert-time" id="alert-current-time">Live</span>
+                  </div>
+                  <div class="alert-item blue">
+                    <div class="alert-left">
+                      <div class="alert-details">
+                        <span class="alert-title">Posture Test</span>
+                        <span class="alert-desc">Send a posture alert to the device buzzer.</span>
+                      </div>
+                    </div>
+                    <button class="btn btn-outline" id="postureAlertBtn">Trigger</button>
+                  </div>
+                  <div class="alert-item blue">
+                    <div class="alert-left">
+                      <div class="alert-details">
+                        <span class="alert-title">Drowsy Test</span>
+                        <span class="alert-desc">Send a fatigue alert to the device buzzer.</span>
+                      </div>
+                    </div>
+                    <button class="btn btn-outline" id="drowsyAlertBtn">Trigger</button>
+                  </div>
+                  <div class="alert-item green">
+                    <div class="alert-left">
+                      <div class="alert-details">
+                        <span class="alert-title">Silent Mode</span>
+                        <span class="alert-desc" id="alert-silent-status">Silent mode disabled.</span>
+                      </div>
+                    </div>
+                    <button class="btn btn-outline" id="toggleSilentBtn">Enable Silent Mode</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-history" class="tab-panel">
+          <div class="card">
+            <div class="card-header">
+              <h3>Daily Focus Report</h3>
+              <div class="history-actions">
+                <div class="filter-group">
+                  <label>Summary</label>
+                  <span class="text-dim" id="reportSummary">No sessions yet</span>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="analytics-summary-cards">
+                <div class="card summary-card">
+                  <span class="s-title">Date</span>
+                  <div class="s-value-container">
+                    <span class="s-val text-green" id="dailyDate">--</span>
+                  </div>
+                </div>
+                <div class="card summary-card">
+                  <span class="s-title">Sessions</span>
+                  <div class="s-value-container">
+                    <span class="s-val text-blue" id="dailySessions">0</span>
+                  </div>
+                </div>
+                <div class="card summary-card">
+                  <span class="s-title">Focus Time</span>
+                  <div class="s-value-container">
+                    <span class="s-val text-yellow" id="dailyFocusTime">0 min</span>
+                  </div>
+                </div>
+                <div class="card summary-card">
+                  <span class="s-title">Latest Session</span>
+                  <div class="s-value-container">
+                    <span class="s-val text-blue" id="latestSession">Waiting</span>
+                  </div>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="history-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Duration</th>
+                      <th>Posture</th>
+                      <th>Fatigue</th>
+                      <th>Blinks</th>
+                      <th>Light</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reportTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-analytics" class="tab-panel">
+          <div class="analytics-grid">
+            <div class="analytics-summary-cards">
+              <div class="card summary-card">
+                <span class="s-title">Posture Alerts</span>
+                <div class="s-value-container">
+                  <span class="s-val text-green" id="dailyPostureAlerts">0</span>
+                </div>
+              </div>
+              <div class="card summary-card">
+                <span class="s-title">Fatigue Alerts</span>
+                <div class="s-value-container">
+                  <span class="s-val text-blue" id="dailyFatigueAlerts">0</span>
+                </div>
+              </div>
+              <div class="card summary-card">
+                <span class="s-title">Blink Count</span>
+                <div class="s-value-container">
+                  <span class="s-val text-yellow" id="dailyBlinks">0</span>
+                </div>
+              </div>
+              <div class="card summary-card">
+                <span class="s-title">Today Alerts</span>
+                <div class="s-value-container">
+                  <span class="s-val text-yellow" id="todayAlerts">0</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-activity-summary">
+              <div class="card-header">
+                <h3>Activity Summary</h3>
+              </div>
+              <div class="card-body activity-body">
+                <div class="activity-summary-grid">
+                  <div class="activity-metric border-green">
+                    <span class="a-title">Good Posture Sessions</span>
+                    <span class="a-val" id="activity-good-posture">0</span>
+                    <span class="a-pct text-green" id="activity-good-posture-pct">(0%)</span>
+                  </div>
+                  <div class="activity-metric border-red">
+                    <span class="a-title">High Risk Sessions</span>
+                    <span class="a-val" id="activity-risk-sessions">0</span>
+                    <span class="a-pct text-red" id="activity-risk-sessions-pct">(0%)</span>
+                  </div>
+                  <div class="activity-metric border-blue">
+                    <span class="a-title">Total Working Time</span>
+                    <span class="a-val" id="activity-total-working-time">0 min</span>
+                  </div>
+                  <div class="activity-metric border-yellow">
+                    <span class="a-title">Alerts Count</span>
+                    <span class="a-val text-yellow" id="activity-alerts-count">0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="analytics-middle-row">
+              <div class="card card-analytics-trend">
+                <div class="card-header">
+                  <h3>Live Trend Panels</h3>
+                </div>
+                <div class="card-body">
+                  <div class="sparklines-grid">
+                    <div class="sparkline-item">
+                      <span class="spark-title">Blink Rate</span>
+                      <div class="mini-chart" id="analyticsBlinkChart"></div>
+                    </div>
+                    <div class="sparkline-item">
+                      <span class="spark-title">Light Level</span>
+                      <div class="mini-chart" id="analyticsLightChart"></div>
+                    </div>
+                    <div class="sparkline-item">
+                      <span class="spark-title">Alert Load</span>
+                      <div class="mini-chart" id="analyticsAlertChart"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card card-top-insights">
+                <div class="card-header">
+                  <h3>Top Insights</h3>
+                </div>
+                <div class="card-body insights-body">
+                  <ul class="insights-list">
+                    <li><div class="insight-bullet"></div><span id="insight-1">Waiting for live metrics.</span></li>
+                    <li><div class="insight-bullet"></div><span id="insight-2">Device status will appear here.</span></li>
+                    <li><div class="insight-bullet"></div><span id="insight-3">Session trends update automatically.</span></li>
+                    <li><div class="insight-bullet"></div><span id="insight-4">Reports are loaded from saved history.</span></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-settings" class="tab-panel">
+          <div class="settings-container">
+            <div class="card card-settings">
+              <div class="settings-nav">
+                <button class="settings-nav-item active" data-settings-tab="general">General</button>
+                <button class="settings-nav-item" data-settings-tab="devices">Devices</button>
+                <button class="settings-nav-item" data-settings-tab="automation">Automation</button>
+                <button class="settings-nav-item" data-settings-tab="alerts">Alerts</button>
+              </div>
+              
+              <div class="settings-content-wrapper">
+                <div class="settings-tab-panel active" id="settings-general">
+                  <h3>General Settings</h3>
+                  <div class="settings-form">
+                    <div class="form-row">
+                      <label for="cameraIndex">Camera Index</label>
+                      <input id="cameraIndex" type="number" min="0" max="5" class="select-input">
+                    </div>
+                    <div class="form-row">
+                      <label for="breakMinutes">Break Reminder Minutes</label>
+                      <input id="breakMinutes" type="number" min="5" max="180" class="select-input">
+                    </div>
+                    <div class="form-row">
+                      <label for="temperatureValue">Default Temperature</label>
+                      <input id="temperatureValue" type="number" min="18" max="40" class="select-input">
+                    </div>
+                    <div class="form-row">
+                      <label for="defaultLampBrightness">Default Lamp Brightness</label>
+                      <input id="defaultLampBrightness" type="number" min="0" max="100" class="select-input">
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="settings-tab-panel" id="settings-devices">
+                  <h3>Connected Devices</h3>
+                  <p class="settings-desc">Manage ESP32 endpoint and local Wi-Fi settings.</p>
+                  <div class="settings-form">
+                    <div class="form-row">
+                      <label for="deviceMode">ESP32 Mode</label>
+                      <select id="deviceMode" class="select-input">
+                        <option value="http">http</option>
+                        <option value="serial">serial</option>
+                      </select>
+                    </div>
+                    <div class="form-row">
+                      <label for="deviceEndpoint">ESP32 Endpoint</label>
+                      <input id="deviceEndpoint" class="select-input" placeholder="http://192.168.1.100 or COM3">
+                    </div>
+                    <div class="form-row">
+                      <label for="deviceWifiSsid">Wi-Fi SSID</label>
+                      <input id="deviceWifiSsid" class="select-input" placeholder="Device Wi-Fi SSID">
+                    </div>
+                    <div class="form-row">
+                      <label for="deviceWifiPassword">Wi-Fi Password</label>
+                      <input id="deviceWifiPassword" type="password" class="select-input" placeholder="Device Wi-Fi Password">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-tab-panel" id="settings-automation">
+                  <h3>Automation Settings</h3>
+                  <p class="settings-desc">Configure automated reactions to posture and environment changes.</p>
+                  <div class="settings-form">
+                    <div class="form-row">
+                      <label>Auto Mode</label>
+                      <label class="switch">
+                        <input type="checkbox" id="autoMode">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Auto Fan</label>
+                      <label class="switch">
+                        <input type="checkbox" id="autoFan">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Auto Lamp</label>
+                      <label class="switch">
+                        <input type="checkbox" id="autoLamp">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Startup Auto Launch</label>
+                      <label class="switch">
+                        <input type="checkbox" id="startupAutoLaunch">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Minimize To Tray</label>
+                      <label class="switch">
+                        <input type="checkbox" id="minimizeToTray">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-tab-panel" id="settings-alerts">
+                  <h3>Alert Preferences</h3>
+                  <div class="settings-form">
+                    <div class="form-row">
+                      <label>Silent Mode</label>
+                      <label class="switch">
+                        <input type="checkbox" id="silentMode">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Fatigue Alerts Enabled</label>
+                      <label class="switch">
+                        <input type="checkbox" id="fatigueAlert">
+                        <span class="slider-switch"></span>
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label>Posture Sensitivity</label>
+                      <input id="postureSensitivity" type="number" min="5" max="45" class="select-input">
+                    </div>
+                    <div class="form-row">
+                      <label>Fatigue Sensitivity</label>
+                      <input id="fatigueSensitivity" type="number" min="15" max="35" class="select-input">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-footer">
+                <button class="btn btn-outline" id="pairDeviceBtn">Pair Device</button>
+                <button class="btn btn-outline" id="syncDeviceBtn">Sync Settings</button>
+                <button class="btn btn-outline" id="refreshDeviceBtn">Refresh Status</button>
+                <button class="btn btn-green" id="saveSettingsBtn">Save Changes</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
