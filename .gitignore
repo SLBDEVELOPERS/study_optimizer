@@ -1,0 +1,4 @@
+.venv/
+/3d design/
+.idea/
+*.pyc
