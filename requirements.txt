@@ -10,10 +10,14 @@ numpy>=1.24.0
 pyserial>=3.5
 requests>=2.28.0
 PySide6>=6.7.0
+vosk>=0.3.45
+sounddevice>=0.4.6
 
 # NOTE: Model files are auto-downloaded on first run:
 #   pose_landmarker_full.task  (~25 MB)
 #   face_landmarker.task       (~18 MB)
+#   vosk-model-small-en-us-0.15 (~50 MB)
 # Or download manually:
 #   https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task
 #   https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+#   https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip

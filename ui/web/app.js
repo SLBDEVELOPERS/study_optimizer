@@ -96,6 +96,19 @@ document.addEventListener("DOMContentLoaded", () => {
     pill.parentElement.classList.add(on ? "green" : "red");
   }
 
+  function setCalibrationCheck(id, state) {
+    const item = $(id);
+    if (!item) {
+      return;
+    }
+    item.classList.remove("ready", "optional");
+    if (state === "ready") {
+      item.classList.add("ready");
+    } else if (state === "optional") {
+      item.classList.add("optional");
+    }
+  }
+
   function syncLampWidgets(brightness) {
     $("ctrl-lamp-dimmer").value = brightness;
     $("ctrl-lamp-val").textContent = `${brightness}%`;
@@ -192,7 +205,37 @@ document.addEventListener("DOMContentLoaded", () => {
     $("pill-ai").textContent = fatigueBad ? "Drowsy" : "Running";
     $("pill-command").textContent = status.last_command_status;
     $("pill-buzzer").textContent = silentOn ? "Silent" : "Ready";
+    if (document.getElementById("pill-voice")) {
+      setStatusPill("pill-voice", status.voice_listening, "Listening", "Stopped");
+    }
     setStatusPill("pill-fan", status.fan_on, "ON", "OFF");
+
+    if ($("pill-calib")) {
+      const postureCalib = status.posture_calibrated;
+      const earCalib = status.ear_calibrated;
+      $("pill-calib").textContent = postureCalib ? (earCalib ? "Ready" : "EAR warming...") : "Calibrating...";
+      const calibPill = $("status-pill-calib");
+      calibPill.classList.remove("green", "yellow", "red");
+      calibPill.classList.add(postureCalib && earCalib ? "green" : postureCalib ? "yellow" : "red");
+    }
+    if ($("calibrationWorkflowCard")) {
+      const progress = Math.max(0, Math.min(100, Number(status.calibration_progress || 0)));
+      const postureReady = Boolean(status.posture_calibrated);
+      const earReady = Boolean(status.ear_calibrated);
+      $("calibrationWorkflowState").textContent = postureReady ? (earReady ? "Ready" : "Eye baseline warming") : "In progress";
+      $("calibrationProgressText").textContent = `${progress.toFixed(0)}%`;
+      $("calibrationProgressFill").style.width = `${progress}%`;
+      $("calibrationStatusText").textContent = status.calibration_status || "Sit upright and keep still.";
+      setCalibrationCheck("checkCameraVisible", status.posture_landmarks_visible ? "ready" : "missing");
+      setCalibrationCheck("checkHipsVisible", status.hips_visible ? "ready" : "optional");
+      setCalibrationCheck("checkEarReady", earReady ? "ready" : "missing");
+    }
+    if ($("pill-posture-pct")) {
+      $("pill-posture-pct").textContent = `${status.posture_good_pct ?? "--"}%`;
+      const pct = status.posture_good_pct ?? 0;
+      $("status-pill-posture-pct").classList.remove("green", "yellow", "red");
+      $("status-pill-posture-pct").classList.add(pct >= 70 ? "green" : pct >= 40 ? "yellow" : "red");
+    }
     syncLampWidgets(status.lamp_brightness);
     syncFanWidgets(status.fan_on);
     syncLampToggle(lampOn);
@@ -269,11 +312,11 @@ document.addEventListener("DOMContentLoaded", () => {
       ? `Average session length is ${avgDuration.toFixed(1)} minutes across ${history.length} sessions.`
       : "No session history yet for analytics.";
     $("insight-2").textContent = bestSession
-      ? `Best session had ${(bestSession.posture_alerts || 0) + (bestSession.fatigue_alerts || 0)} total alerts.`
+      ? `Best session: ${(bestSession.posture_alerts || 0) + (bestSession.fatigue_alerts || 0)} alerts — quality score ${bestSession.quality_score ?? "--"}/100.`
       : "Best session insight will appear after saving reports.";
-    $("insight-3").textContent = worstSession
-      ? `Highest risk session had ${(worstSession.posture_alerts || 0) + (worstSession.fatigue_alerts || 0)} alerts.`
-      : "Risk trend will appear after more sessions.";
+    $("insight-3").textContent = avgQuality !== null
+      ? `Average quality score is ${avgQuality}/100 — ${avgQuality >= 70 ? "Great consistency!" : avgQuality >= 40 ? "Room for improvement." : "Focus on posture."}`
+      : "Quality score trends will appear after more sessions.";
     $("insight-4").textContent = history.length
       ? `Typical light condition is ${dominantLight(history)} and average blinks per session is ${avgBlinks.toFixed(1)}.`
       : "Light and blink pattern insights are waiting for data.";
@@ -300,17 +343,30 @@ document.addEventListener("DOMContentLoaded", () => {
       $("dailyPostureAlerts").setAttribute("title", `Average ${avgPostureAlerts.toFixed(1)} posture alerts per session`);
     }
 
-    const rows = history.slice().reverse().map((report) => `
-      <tr>
-        <td>${new Date((report.timestamp || 0) * 1000).toLocaleString()}</td>
-        <td>${report.duration_minutes || 0} min</td>
-        <td>${report.posture_alerts || 0}</td>
-        <td>${report.fatigue_alerts || 0}</td>
-        <td>${report.blink_count || 0}</td>
-        <td>${report.room_light_status || "Unknown"}</td>
-      </tr>
-    `).join("");
-    $("reportTableBody").innerHTML = rows || `<tr><td colspan="6">No reports yet.</td></tr>`;
+    const avgQuality = history.length
+      ? Math.round(history.reduce((sum, item) => sum + (item.quality_score || 0), 0) / history.length)
+      : null;
+    if ($("avgQualityScore")) {
+      $("avgQualityScore").textContent = avgQuality !== null ? `${avgQuality}/100` : "--";
+      $("avgQualityScore").className = `s-val ${avgQuality >= 70 ? "text-green" : avgQuality >= 40 ? "text-yellow" : "text-red"}`;
+    }
+
+    const rows = history.slice().reverse().map((report) => {
+      const score = report.quality_score;
+      const scoreColor = score >= 70 ? "color:var(--text-green)" : score >= 40 ? "color:var(--text-yellow)" : "color:var(--text-red)";
+      return `
+        <tr>
+          <td>${new Date((report.timestamp || 0) * 1000).toLocaleString()}</td>
+          <td>${report.duration_minutes || 0} min</td>
+          <td>${report.posture_alerts || 0}</td>
+          <td>${report.fatigue_alerts || 0}</td>
+          <td>${report.blink_count || 0}</td>
+          <td>${report.room_light_status || "Unknown"}</td>
+          <td style="${scoreColor}">${score !== undefined ? `${score}/100` : "--"}</td>
+        </tr>
+      `;
+    }).join("");
+    $("reportTableBody").innerHTML = rows || `<tr><td colspan="7">No reports yet.</td></tr>`;
   }
 
   function bindActions() {
@@ -372,6 +428,10 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     $("syncDeviceBtn").onclick = () => bridge.syncDeviceSettings();
     $("refreshDeviceBtn").onclick = () => bridge.refreshDeviceStatus();
+    $("resetCalibrationBtn").onclick = () => bridge.resetCalibration();
+    if ($("resetCalibrationInlineBtn")) {
+      $("resetCalibrationInlineBtn").onclick = () => bridge.resetCalibration();
+    }
     $("btn-clear-all-alerts").onclick = () => {
       $("alert-current-status").textContent = "Status cleared on UI.";
       $("alert-current-time").textContent = "Now";

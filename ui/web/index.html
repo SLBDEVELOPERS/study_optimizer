@@ -251,6 +251,10 @@
                 <h3>System Status</h3>
               </div>
               <div class="card-body status-badges-row">
+                <div class="status-pill green" id="status-pill-voice">
+                  <span>Voice Control</span>
+                  <strong class="pill-state" id="pill-voice">Starting...</strong>
+                </div>
                 <div class="status-pill green">
                   <span>ESP32-Connection</span>
                   <strong class="pill-state" id="pill-esp32">Connected</strong>
@@ -278,6 +282,14 @@
                 <div class="status-pill green">
                   <span>Last Command</span>
                   <strong class="pill-state" id="pill-command">Idle</strong>
+                </div>
+                <div class="status-pill green" id="status-pill-calib">
+                  <span>Calibration</span>
+                  <strong class="pill-state" id="pill-calib">Calibrating...</strong>
+                </div>
+                <div class="status-pill green" id="status-pill-posture-pct">
+                  <span>Good Posture</span>
+                  <strong class="pill-state" id="pill-posture-pct">--%</strong>
                 </div>
               </div>
             </div>
@@ -341,6 +353,35 @@
             </div>
 
             <div class="posture-right-col">
+              <div class="card card-calibration-workflow" id="calibrationWorkflowCard">
+                <div class="card-header">
+                  <h3>Calibration</h3>
+                  <span class="card-subtitle" id="calibrationWorkflowState">Waiting</span>
+                </div>
+                <div class="card-body calibration-body">
+                  <div class="calibration-progress-row">
+                    <span id="calibrationProgressText">0%</span>
+                    <div class="progress-track"><div class="progress-fill" id="calibrationProgressFill"></div></div>
+                  </div>
+                  <div class="calibration-status-line" id="calibrationStatusText">Sit upright and keep still.</div>
+                  <div class="calibration-checks">
+                    <div class="calibration-check" id="checkCameraVisible">
+                      <span class="check-dot"></span>
+                      <span>Face and shoulders visible</span>
+                    </div>
+                    <div class="calibration-check" id="checkHipsVisible">
+                      <span class="check-dot"></span>
+                      <span>Hips visible for back-lean</span>
+                    </div>
+                    <div class="calibration-check" id="checkEarReady">
+                      <span class="check-dot"></span>
+                      <span>Eye baseline ready</span>
+                    </div>
+                  </div>
+                  <button class="btn btn-outline" id="resetCalibrationInlineBtn">Restart Calibration</button>
+                </div>
+              </div>
+
               <div class="card card-posture-analysis">
                 <div class="card-header">
                   <h3>Posture Analysis</h3>
@@ -576,6 +617,7 @@
                       <th>Fatigue</th>
                       <th>Blinks</th>
                       <th>Light</th>
+                      <th>Score</th>
                     </tr>
                   </thead>
                   <tbody id="reportTableBody"></tbody>
@@ -610,6 +652,12 @@
                 <span class="s-title">Today Alerts</span>
                 <div class="s-value-container">
                   <span class="s-val text-yellow" id="todayAlerts">0</span>
+                </div>
+              </div>
+              <div class="card summary-card">
+                <span class="s-title">Avg Quality Score</span>
+                <div class="s-value-container">
+                  <span class="s-val text-green" id="avgQualityScore">--</span>
                 </div>
               </div>
             </div>
@@ -816,6 +864,7 @@
                 <button class="btn btn-outline" id="pairDeviceBtn">Pair Device</button>
                 <button class="btn btn-outline" id="syncDeviceBtn">Sync Settings</button>
                 <button class="btn btn-outline" id="refreshDeviceBtn">Refresh Status</button>
+                <button class="btn btn-outline" id="resetCalibrationBtn">Reset Calibration</button>
                 <button class="btn btn-green" id="saveSettingsBtn">Save Changes</button>
               </div>
             </div>

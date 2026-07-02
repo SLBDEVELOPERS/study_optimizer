@@ -67,6 +67,10 @@ class WebBridge(QObject):
     def captureSnapshot(self):
         self.service.capture_snapshot()
 
+    @Slot()
+    def resetCalibration(self):
+        self.service.reset_calibration()
+
 
 class SmartStudyOptimizer(QMainWindow):
     def __init__(self):

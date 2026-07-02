@@ -2,13 +2,21 @@
 
 Smart Study Optimizer is a Python desktop application that monitors posture and eye fatigue in real time using a webcam. It uses OpenCV and the MediaPipe Tasks API to detect slouching, forward-head posture, face distance, blink patterns, and possible drowsiness. Alerts can be sent to an ESP32 over HTTP or serial, and the app also works in simulation mode when the ESP32 is unavailable.
 
+This project provides study/work posture and fatigue warnings only. It is not a medical device and must not be used to diagnose sleep disorders, eye disease, spine problems, or any other health condition.
+
 ## Features
 
 - Real-time posture monitoring
 - Forward-head and slouch detection
+- Back-lean detection using shoulder/hip landmarks when visible
+- Per-user posture and eye calibration
+- Posture and fatigue scores
+- Per-feature confidence values
 - Face-too-close detection
 - Blink counting and blink-rate tracking
-- Basic drowsiness detection using eye aspect ratio and blink behavior
+- PERCLOS-style eye-closure tracking
+- Yawn, nod, focus-loss, and possible drowsiness warnings
+- Validation CSV logging for real-user threshold tuning
 - On-screen HUD with session stats and alert counters
 - ESP32 buzzer alerts through HTTP or serial
 - Snapshot capture during runtime
@@ -100,16 +108,35 @@ Posture checks:
 
 - shoulder tilt angle
 - forward head ratio
+- head drop ratio
+- shoulder/hip torso lean when hips are visible
 - face size ratio for distance
+- temporal confirmation before warning flags are set
 
 Fatigue checks:
 
 - eye aspect ratio (EAR)
+- PERCLOS
 - blink count over time
 - blink-rate thresholds
-- average EAR history
+- mouth aspect ratio (MAR) for yawning
+- head-drop/nod events
+- gaze-away or missing-face focus loss
+- temporal confirmation before warning flags are set
 
 Alerts are throttled using cooldown values in the `Config` dataclass.
+
+## Validation Logs
+
+When enabled, the app writes raw metrics to `data/validation_log.csv`. Use this file to tune thresholds with real users instead of guessing from live output.
+
+Run:
+
+```bash
+python data/evaluate_validation_log.py
+```
+
+If you add manual label columns named `manual_posture_bad` and `manual_fatigue_bad`, the evaluator also prints basic precision, recall, and accuracy.
 
 ## Project Structure
 
