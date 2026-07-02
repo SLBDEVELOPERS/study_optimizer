@@ -13,15 +13,13 @@
   ║  7. startupBeep() non-blocking                               ║
   ╠══════════════════════════════════════════════════════════════╣
   ║  Libraries needed (Arduino IDE → Manage Libraries):          ║
-  ║    • BH1750              by Christopher Laws                 ║
   ║    • DHT sensor library  by Adafruit                         ║
   ║    • Adafruit Unified Sensor  by Adafruit                    ║
   ║    • ArduinoJson         by Benoit Blanchon                  ║
   ╠══════════════════════════════════════════════════════════════╣
   ║  Pin Map:                                                    ║
   ║    GPIO4   DHT22 DATA                                        ║
-  ║    GPIO21  BH1750 SDA                                        ║
-  ║    GPIO22  BH1750 SCL                                        ║
+  ║    GPIO34  LDR (analog, voltage divider w/ 10k to GND)       ║
   ║    GPIO25  LED Lamp (MOSFET PWM)                             ║
   ║    GPIO26  Passive Buzzer (tone())                           ║
   ║    GPIO27  DC Fan (NPN transistor)                           ║
@@ -36,17 +34,16 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
-#include <BH1750.h>
 #include "DHT.h"
 
 // ── WiFi Credentials ──────────────────────────────────────────
-const char* WIFI_SSID = "YOUR_WIFI_NAME";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "slb";
+const char* WIFI_PASS = "12345678";
 
 // ── Pins ──────────────────────────────────────────────────────
 #define DHTPIN      4
 #define DHTTYPE     DHT22
+#define LDR_PIN     34    // Analog input, voltage divider w/ 10k to GND
 
 #define LAMP_PIN    25    // MOSFET gate → LED lamp
 #define BUZZER_PIN  26    // Passive buzzer (uses tone())
@@ -66,8 +63,11 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // ── Auto-Control Thresholds ───────────────────────────────────
 #define TEMP_FAN_ON    30.0f
 #define TEMP_FAN_OFF   28.0f
-#define LUX_LOW        250
-#define LUX_GOOD       500
+// LDR raw ADC values (0-4095). These are rough starting points —
+// recalibrate by watching Serial output in your actual room lighting.
+// Lower value = darker (LDR resistance higher, divider pulls toward GND)
+#define LUX_LOW        1200
+#define LUX_GOOD       2500
 
 // ── Buzzer Tones ──────────────────────────────────────────────
 #define BUZZ_POSTURE_HZ   1500
@@ -78,6 +78,9 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 #define BUZZ_OFF_MS       200
 #define BUZZ_STARTUP_MS   150
 
+unsigned long lastSensorRead = 0;
+const unsigned long sensorInterval = 1000;
+
 // ── WiFi Connect Timeout ──────────────────────────────────────
 #define WIFI_TIMEOUT_MS  20000   // FIX #4: 20s max wait
 
@@ -85,7 +88,6 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // Objects
 // ─────────────────────────────────────────────────────────────
 DHT       dht(DHTPIN, DHTTYPE);
-BH1750    lightMeter;
 WebServer server(80);
 
 // ─────────────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ WebServer server(80);
 // ─────────────────────────────────────────────────────────────
 float temperature  = 0.0f;
 float humidity     = 0.0f;
-float lux          = 0.0f;
+int   lux          = 0;    // raw LDR ADC reading, 0-4095
 
 // ─────────────────────────────────────────────────────────────
 // Actuator State
@@ -356,11 +358,11 @@ void handleCommand() {
 void readSensors() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
-  float l = lightMeter.readLightLevel();
+  int   l = analogRead(LDR_PIN);
 
   if (!isnan(t)) temperature = t;
   if (!isnan(h)) humidity    = h;
-  if (l >= 0)    lux         = l;
+  lux = l;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -396,7 +398,7 @@ void updateStatusLEDs() {
 // ─────────────────────────────────────────────────────────────
 void printStatus() {
   Serial.printf(
-    "T:%.1f°C  H:%.1f%%  Lux:%.0f  Fan:%s  Lamp:%d%%  Posture:%s  Fatigue:%s\n",
+    "T:%.1f°C  H:%.1f%%  Light:%d  Fan:%s  Lamp:%d%%  Posture:%s  Fatigue:%s\n",
     temperature, humidity, lux,
     fanState ? "ON" : "OFF",
     lampPct,
@@ -440,20 +442,13 @@ void setup() {
   digitalWrite(LED_FAN,     LOW);
   digitalWrite(LED_WIFI,    LOW);
 
-  // I2C — explicit SDA=21, SCL=22
-  Wire.begin(21, 22);
+  // LDR — analog input, no special init needed
+  pinMode(LDR_PIN, INPUT);
   dht.begin();
 
-  if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
-    Serial.println("BH1750 OK");
-  } else {
-    Serial.println("BH1750 ERROR — check SDA/SCL wiring");
-  }
-
   // LED Lamp PWM
-  ledcSetup(LAMP_CHANNEL, PWM_FREQ, PWM_RES);
-  ledcAttachPin(LAMP_PIN, LAMP_CHANNEL);
-  ledcWrite(LAMP_CHANNEL, 0);
+ledcAttach(LAMP_PIN, PWM_FREQ, PWM_RES);   // single call, no channel needed
+ledcWrite(LAMP_PIN, 0);                     // use pin directly, not channel
 
   // WiFi — with timeout  (FIX #4)
   connectWiFi();
@@ -495,5 +490,3 @@ void loop() {
   }
 }
 
-unsigned long lastSensorRead = 0;
-const unsigned long sensorInterval = 1000;
