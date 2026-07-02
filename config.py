@@ -57,12 +57,20 @@ class Config:
 
     EAR_THRESHOLD: float = 0.22
     EAR_CONSEC_FRAMES: int = 2
+    EAR_SMOOTH_FRAMES: int = 3
     DROWSY_BLINK_RATE_LOW: float = 8.0
     DROWSY_BLINK_RATE_HIGH: float = 25.0
     DROWSY_EAR_AVG: float = 0.26
     DROWSY_CONFIRM_SECONDS: float = 5.0
     BLINK_WINDOW_SECONDS: float = 60.0
+    BLINK_RATE_MIN_SECONDS: float = 20.0
     DROWSY_ALERT_COOLDOWN: float = 60.0
+
+    MAR_THRESHOLD: float = 0.60
+    MAR_CONSEC_FRAMES: int = 15
+
+    FORWARD_HEAD_Z_DELTA: float = 0.12  # deviation from calibrated baseline (normalised by shoulder width)
+    NOSE_DROP_RATIO: float = 0.12       # deviation from calibrated baseline (normalised by shoulder width)
 
     ESP32_MODE: str = "http"
     ESP32_SERIAL_PORT: str = os.getenv("ESP32_SERIAL_PORT", "/dev/ttyUSB0")
@@ -158,9 +166,15 @@ class FatigueState:
     ear_right: float = 0.0
     ear_avg: float = 0.0
     ear_history: deque = field(default_factory=lambda: deque(maxlen=90))
+    ear_smooth_buf: deque = field(default_factory=lambda: deque(maxlen=3))
     consec_below_threshold: int = 0
+    yawn_count: int = 0
+    consec_mouth_open: int = 0
+    mar: float = 0.0
+    is_yawning: bool = False
     is_drowsy: bool = False
     drowsy_start: float = 0.0
+    session_start: float = field(default_factory=time.time)
     last_alert_time: float = 0.0
     alert_count: int = 0
 

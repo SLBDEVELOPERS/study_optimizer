@@ -226,23 +226,29 @@ class BackendService(QObject):
     def metrics(self) -> dict:
         posture_bad = self.state.posture.is_slouching or self.state.posture.is_forward_head or self.state.posture.is_too_close
         posture_detail = "Shoulders aligned"
-        if self.state.posture.is_slouching:
-            posture_detail = f"Shoulder angle {self.state.posture.shoulder_angle:.1f} deg"
-        elif self.state.posture.is_forward_head:
-            posture_detail = f"Head ratio {self.state.posture.head_forward_ratio:.2f}"
+        if self.state.posture.is_forward_head:
+            posture_detail = f"Forward head (depth {self.state.posture.head_forward_ratio:.2f})"
+        elif self.state.posture.is_slouching:
+            drop = getattr(self.state.posture, 'head_drop_ratio', 0.0)
+            posture_detail = f"Slouching (tilt {self.state.posture.shoulder_angle:.1f}° / drop {drop:.2f})"
         elif self.state.posture.is_too_close:
             posture_detail = "Face too close to screen"
 
         fatigue_status = "Drowsy" if self.state.fatigue.is_drowsy else "Alert"
         fatigue_detail = "Blink pattern stable"
-        if self.state.fatigue.is_drowsy:
-            fatigue_detail = f"EAR {self.state.fatigue.ear_avg:.3f} / {self.state.fatigue.blink_rate:.1f} min"
+        if self.state.fatigue.is_yawning:
+            fatigue_detail = f"Yawning detected (EAR {self.state.fatigue.ear_avg:.3f})"
+        elif self.state.fatigue.is_drowsy:
+            fatigue_detail = f"EAR {self.state.fatigue.ear_avg:.3f} / {self.state.fatigue.blink_rate:.1f} bpm"
 
         return {
             "posture_status": "Bad" if posture_bad else "Good",
             "posture_detail": posture_detail,
             "fatigue_status": fatigue_status,
             "fatigue_detail": fatigue_detail,
+            "yawn_count": self.state.fatigue.yawn_count,
+            "is_yawning": self.state.fatigue.is_yawning,
+            "mar": round(self.state.fatigue.mar, 3),
             "room_light": self.state.environment.room_light_status,
             "room_light_level": self.state.environment.room_light_level,
             "temperature_c": self.state.environment.temperature_c,

@@ -118,5 +118,35 @@
     "lamp_brightness": 35,
     "auto_mode": true,
     "silent_mode": false
+  },
+  {
+    "date": "2026-05-25",
+    "timestamp": 1779702937,
+    "duration_minutes": 6,
+    "duration_seconds": 371,
+    "posture_alerts": 12,
+    "fatigue_alerts": 5,
+    "blink_count": 13,
+    "room_light_status": "Good",
+    "temperature_c": 30.0,
+    "fan_on": true,
+    "lamp_brightness": 35,
+    "auto_mode": true,
+    "silent_mode": false
+  },
+  {
+    "date": "2026-05-25",
+    "timestamp": 1779704233,
+    "duration_minutes": 1,
+    "duration_seconds": 82,
+    "posture_alerts": 1,
+    "fatigue_alerts": 1,
+    "blink_count": 2,
+    "room_light_status": "Good",
+    "temperature_c": 30.0,
+    "fan_on": true,
+    "lamp_brightness": 35,
+    "auto_mode": true,
+    "silent_mode": false
   }
 ]
