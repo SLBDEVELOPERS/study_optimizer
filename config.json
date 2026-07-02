@@ -1,5 +1,5 @@
 {
-  "esp32_url": "http://192.168.1.100",
+  "esp32_url": "http://192.168.43.186",
   "camera_index": 0,
   "posture_sensitivity": 15,
   "fatigue_sensitivity": 22,
