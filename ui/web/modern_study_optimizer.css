@@ -774,6 +774,63 @@ input[type=range]:hover::-webkit-slider-thumb {
   gap: 20px;
 }
 
+.calibration-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calibration-progress-row {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.calibration-status-line {
+  min-height: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.calibration-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calibration-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.check-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-red);
+  box-shadow: 0 0 6px var(--glow-red);
+  flex-shrink: 0;
+}
+
+.calibration-check.ready .check-dot {
+  background-color: var(--text-green);
+  box-shadow: 0 0 6px var(--glow-green);
+}
+
+.calibration-check.optional .check-dot {
+  background-color: var(--text-yellow);
+  box-shadow: 0 0 6px var(--glow-yellow);
+}
+
 .camera-body {
   display: flex;
   justify-content: center;

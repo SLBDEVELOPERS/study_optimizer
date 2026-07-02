@@ -3,6 +3,7 @@ import base64
 from collections import deque
 import json
 from pathlib import Path
+import re
 import time
 
 import cv2
@@ -13,7 +14,10 @@ from camera.posture_analyzer import PostureAnalyzer
 from config import CONFIG, SystemState, ensure_models, logger, save_config
 from data.reports import format_session_report
 from data.session_logger import SessionLogger
+from data.validation_logger import ValidationLogger
 from device.device_pairing import build_device_settings_payload, pair_device, update_device_connection
+from ui.mobile_api import MobileApiServer
+from voice.voice_controller import VoiceListenerThread
 
 
 def session_clock(started_at: float) -> str:
@@ -93,6 +97,7 @@ class BackendService(QObject):
         self.face_analyzer = FaceEyeAnalyzer(self.config.FACE_MODEL, self.config)
         self.alerts = AlertManager(self.config, self.esp32)
         self.session_logger = SessionLogger(self.config.REPORTS_FILE)
+        self.validation_logger = ValidationLogger(self.config.VALIDATION_LOG_FILE)
 
         self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.FRAME_WIDTH)
@@ -108,6 +113,9 @@ class BackendService(QObject):
         self.blink_history = deque([0.0] * 20, maxlen=20)
         self.light_history = deque([0] * 20, maxlen=20)
         self.alert_history = deque([0] * 20, maxlen=20)
+        self.mobile_api = MobileApiServer(self)
+        self.mobile_api.start()
+        logger.info("Mobile API listening on http://0.0.0.0:8765")
 
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.process_frame)
@@ -116,6 +124,66 @@ class BackendService(QObject):
         self.break_timer = QTimer(self)
         self.break_timer.timeout.connect(self.check_break_reminder)
         self.break_timer.start(60_000)
+
+        self.voice_listening = False
+        self.voice_thread = VoiceListenerThread(self)
+        self.voice_thread.command_recognized.connect(self.handle_voice_command)
+        self.voice_thread.listening_started.connect(self.on_voice_listening_started)
+        self.voice_thread.listening_stopped.connect(self.on_voice_listening_stopped)
+        self.voice_thread.start()
+
+    def on_voice_listening_started(self):
+        self.voice_listening = True
+        self.state.device.last_command_status = "Voice control active"
+        self.emit_status()
+
+    def on_voice_listening_stopped(self):
+        self.voice_listening = False
+        self.emit_status()
+
+    def handle_voice_command(self, text: str):
+        if "fan on" in text:
+            if not self.state.device.fan_on:
+                self.toggle_fan()
+        elif "fan off" in text:
+            if self.state.device.fan_on:
+                self.toggle_fan()
+        elif "lamp brightness" in text:
+            match = re.search(r"lamp brightness (\d+)", text)
+            if match:
+                self.set_lamp_brightness(int(match.group(1)))
+        elif "lamp on" in text:
+            self.set_lamp_brightness(100)
+        elif "lamp off" in text:
+            self.set_lamp_brightness(0)
+        elif "auto mode on" in text:
+            if not self.config.AUTO_MODE:
+                self.toggle_mode()
+        elif "auto mode off" in text:
+            if self.config.AUTO_MODE:
+                self.toggle_mode()
+        elif "silent mode on" in text:
+            if not self.config.SILENT_MODE:
+                self.toggle_silent_mode()
+        elif "silent mode off" in text:
+            if self.config.SILENT_MODE:
+                self.toggle_silent_mode()
+        elif "recalibrate" in text or "reset calibration" in text:
+            self.reset_calibration()
+        elif "pause camera" in text:
+            if not self.camera_paused:
+                self.toggle_camera()
+        elif "resume camera" in text:
+            if self.camera_paused:
+                self.toggle_camera()
+        elif "take snapshot" in text:
+            self.capture_snapshot()
+        elif "test posture alert" in text:
+            self.trigger_posture_alert()
+        elif "test drowsy alert" in text:
+            self.trigger_drowsy_alert()
+        else:
+            logger.debug(f"Unhandled voice command: {text}")
 
     def initial_payload(self) -> dict:
         return {
@@ -178,13 +246,23 @@ class BackendService(QObject):
         except Exception as exc:
             logger.debug("Face error: %s", exc)
 
-        self.update_environment(frame_rgb)
+        self.update_environment(frame_rgb, face_landmarks, width, height)
         self.run_automation()
         self.alerts.check(self.state)
+
+        self.state.total_frames += 1
+        posture_bad = (
+            self.state.posture.is_slouching
+            or self.state.posture.is_forward_head
+            or self.state.posture.is_too_close
+        )
+        if not posture_bad:
+            self.state.good_posture_frames += 1
 
         now = time.time()
         self.current_fps = 1.0 / (now - self.previous_tick + 1e-6)
         self.previous_tick = now
+        self.log_validation_frame()
         cv2.putText(frame, f"{self.current_fps:.0f} fps", (width - 100, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (30, 40, 60), 2)
 
         self.blink_history.append(round(self.state.fatigue.blink_rate, 1))
@@ -202,8 +280,33 @@ class BackendService(QObject):
 
         self.emit_status()
 
-    def update_environment(self, frame_rgb):
+    def log_validation_frame(self):
+        if not self.config.VALIDATION_LOG_ENABLED:
+            return
+        if self.state.total_frames % self.config.VALIDATION_LOG_EVERY_N_FRAMES != 0:
+            return
+        try:
+            self.validation_logger.append_state(
+                self.state,
+                self.state.total_frames,
+                self.current_fps,
+                self.camera_status(),
+            )
+        except Exception as exc:
+            logger.debug("Validation log error: %s", exc)
+
+    def update_environment(self, frame_rgb, face_landmarks=None, width: int = 0, height: int = 0):
         brightness = int(frame_rgb.mean() / 255 * 100)
+        if face_landmarks is not None and width > 0 and height > 0:
+            xs = [lm.x for lm in face_landmarks]
+            ys = [lm.y for lm in face_landmarks]
+            x1 = max(0, int(min(xs) * width))
+            x2 = min(width, int(max(xs) * width))
+            y1 = max(0, int(min(ys) * height))
+            y2 = min(height, int(max(ys) * height))
+            if x2 > x1 and y2 > y1:
+                region = frame_rgb[y1:y2, x1:x2]
+                brightness = int(region.mean() / 255 * 100)
         self.state.environment.room_light_level = brightness
         self.state.environment.room_light_status = "Low" if brightness < 42 else "Good"
 
@@ -223,8 +326,26 @@ class BackendService(QObject):
                 self.state.device.fan_on = target_fan
                 self.esp32.set_fan(target_fan)
 
+    def format_posture_detail(self) -> str:
+        posture = self.state.posture
+        reasons = list(posture.posture_reasons)
+        if posture.is_too_close and "Too close to screen" not in reasons:
+            reasons.append("Too close to screen")
+        details = {
+            "Shoulder imbalance": f"Shoulder imbalance ({posture.shoulder_angle:.1f} deg)",
+            "Head dropped": f"Head dropped (drop {posture.head_drop_ratio:.2f})",
+            "Forward head": f"Forward head (depth {posture.head_forward_ratio:.2f})",
+            "Back leaning": f"Back leaning ({posture.back_lean_angle:.1f} deg)",
+            "Too close to screen": f"Too close to screen ({posture.face_size_ratio:.2f})",
+        }
+        reasons = reasons or [posture.posture_reason]
+        return " | ".join(details.get(reason, reason) for reason in reasons if reason) or "Posture needs attention"
+
     def metrics(self) -> dict:
         posture_bad = self.state.posture.is_slouching or self.state.posture.is_forward_head or self.state.posture.is_too_close
+        posture_reasons = list(self.state.posture.posture_reasons)
+        if self.state.posture.is_too_close and "Too close to screen" not in posture_reasons:
+            posture_reasons.append("Too close to screen")
         posture_detail = "Shoulders aligned"
         if self.state.posture.is_forward_head:
             posture_detail = f"Forward head (depth {self.state.posture.head_forward_ratio:.2f})"
@@ -233,6 +354,8 @@ class BackendService(QObject):
             posture_detail = f"Slouching (tilt {self.state.posture.shoulder_angle:.1f}° / drop {drop:.2f})"
         elif self.state.posture.is_too_close:
             posture_detail = "Face too close to screen"
+        if posture_bad:
+            posture_detail = self.format_posture_detail()
 
         fatigue_status = "Drowsy" if self.state.fatigue.is_drowsy else "Alert"
         fatigue_detail = "Blink pattern stable"
@@ -244,9 +367,38 @@ class BackendService(QObject):
         return {
             "posture_status": "Bad" if posture_bad else "Good",
             "posture_detail": posture_detail,
+            "posture_reason": posture_reasons[0] if posture_reasons else self.state.posture.posture_reason,
+            "posture_reasons": posture_reasons,
+            "posture_score": self.state.posture.posture_score,
+            "posture_confidence": round(self.state.posture.posture_confidence, 3),
+            "shoulder_confidence": round(self.state.posture.shoulder_confidence, 3),
+            "head_drop_confidence": round(self.state.posture.head_drop_confidence, 3),
+            "forward_head_confidence": round(self.state.posture.forward_head_confidence, 3),
+            "back_lean_confidence": round(self.state.posture.back_lean_confidence, 3),
+            "face_distance_confidence": round(self.state.posture.face_distance_confidence, 3),
+            "shoulder_imbalance_confirmed": self.state.posture.shoulder_imbalance_confirmed,
+            "head_drop_confirmed": self.state.posture.head_drop_confirmed,
+            "forward_head_confirmed": self.state.posture.forward_head_confirmed,
+            "back_lean_confirmed": self.state.posture.back_lean_confirmed,
+            "back_lean_angle": self.state.posture.back_lean_angle,
+            "torso_z_delta": self.state.posture.torso_z_delta,
             "fatigue_status": fatigue_status,
             "fatigue_detail": fatigue_detail,
+            "fatigue_score": self.state.fatigue.fatigue_score,
+            "fatigue_confidence": round(self.state.fatigue.fatigue_confidence, 3),
+            "eye_confidence": round(self.state.fatigue.eye_confidence, 3),
+            "yawn_confidence": round(self.state.fatigue.yawn_confidence, 3),
+            "nod_confidence": round(self.state.fatigue.nod_confidence, 3),
+            "nod_drop_ratio": round(self.state.fatigue.nod_drop_ratio, 3),
+            "blink_confidence": round(self.state.fatigue.blink_confidence, 3),
+            "focus_confidence": round(self.state.fatigue.focus_confidence, 3),
+            "gaze_away_ratio": round(self.state.fatigue.gaze_away_ratio, 3),
+            "focus_lost": self.state.fatigue.is_focus_lost,
+            "focus_loss_reason": self.state.fatigue.focus_loss_reason,
+            "face_visible": self.state.fatigue.face_visible,
+            "perclos": round(self.state.fatigue.perclos, 3),
             "yawn_count": self.state.fatigue.yawn_count,
+            "nod_count": self.state.fatigue.nod_count,
             "is_yawning": self.state.fatigue.is_yawning,
             "mar": round(self.state.fatigue.mar, 3),
             "room_light": self.state.environment.room_light_status,
@@ -273,6 +425,17 @@ class BackendService(QObject):
             "camera_available": self.camera_available,
             "camera_status": self.camera_status(),
             "last_snapshot_path": self.last_snapshot_path,
+            "voice_listening": self.voice_listening,
+            "posture_calibrated": self.pose_analyzer._calibrated,
+            "posture_landmarks_visible": self.state.posture.landmarks_visible,
+            "hips_visible": self.state.posture.hips_visible,
+            "calibration_status": self.state.posture.calibration_status,
+            "calibration_progress": round(self.state.posture.calibration_progress, 1),
+            "calibration_rejected_frames": self.state.posture.calibration_rejected_frames,
+            "ear_calibrated": self.face_analyzer._personal_ear_valid,
+            "posture_good_pct": round(
+                self.state.good_posture_frames / max(1, self.state.total_frames) * 100, 1
+            ),
         }
 
     def camera_status(self) -> str:
@@ -300,6 +463,8 @@ class BackendService(QObject):
             "default_lamp_brightness": self.config.DEFAULT_LAMP_BRIGHTNESS,
             "device_wifi_ssid": self.config.DEVICE_WIFI_SSID,
             "device_wifi_password": self.config.DEVICE_WIFI_PASSWORD,
+            "validation_log_enabled": self.config.VALIDATION_LOG_ENABLED,
+            "validation_log_every_n_frames": self.config.VALIDATION_LOG_EVERY_N_FRAMES,
         }
 
     def reports_payload(self) -> dict:
@@ -420,6 +585,53 @@ class BackendService(QObject):
         save_config(self.config)
         self.emit_status()
 
+    def reset_calibration(self):
+        self.config.POSTURE_BASELINE_VALID = False
+        self.config.POSTURE_BASELINE_Z = 0.0
+        self.config.POSTURE_BASELINE_V = 0.0
+        self.config.POSTURE_BASELINE_EAR_Z = 0.0
+        self.config.POSTURE_BASELINE_TORSO_Z = 0.0
+        self.config.PERSONAL_EAR_VALID = False
+        self.config.PERSONAL_EAR_BASELINE = 0.0
+        save_config(self.config)
+        self.pose_analyzer.reset_calibration()
+        self.face_analyzer.reset_ear_calibration()
+        self.state.posture.back_lean_angle = 0.0
+        self.state.posture.torso_z_delta = 0.0
+        self.state.posture.posture_score = 100
+        self.state.posture.shoulder_confidence = 0.0
+        self.state.posture.head_drop_confidence = 0.0
+        self.state.posture.forward_head_confidence = 0.0
+        self.state.posture.back_lean_confidence = 0.0
+        self.state.posture.face_distance_confidence = 0.0
+        self.state.posture.posture_confidence = 0.0
+        self.state.posture.shoulder_imbalance_confirmed = False
+        self.state.posture.head_drop_confirmed = False
+        self.state.posture.forward_head_confirmed = False
+        self.state.posture.back_lean_confirmed = False
+        self.state.posture.posture_reason = "Not calibrated"
+        self.state.posture.posture_reasons = []
+        self.state.posture.calibration_status = "Not calibrated"
+        self.state.posture.calibration_progress = 0.0
+        self.state.posture.calibration_rejected_frames = 0
+        self.state.fatigue.perclos = 0.0
+        self.state.fatigue.fatigue_score = 0
+        self.state.fatigue.eye_confidence = 0.0
+        self.state.fatigue.yawn_confidence = 0.0
+        self.state.fatigue.nod_confidence = 0.0
+        self.state.fatigue.nod_drop_ratio = 0.0
+        self.state.fatigue.blink_confidence = 0.0
+        self.state.fatigue.fatigue_confidence = 0.0
+        self.state.fatigue.focus_confidence = 0.0
+        self.state.fatigue.gaze_away_ratio = 0.0
+        self.state.fatigue.is_focus_lost = False
+        self.state.fatigue.focus_loss_reason = ""
+        self.state.fatigue.yawn_times.clear()
+        self.state.fatigue.nod_times.clear()
+        self.state.fatigue.eye_closed_history.clear()
+        self.state.device.last_command_status = "Calibration reset — sit in good posture"
+        self.emit_status()
+
     def trigger_posture_alert(self):
         if self.config.SILENT_MODE:
             self.state.device.last_command_status = "Silent mode skipped posture buzzer"
@@ -463,3 +675,7 @@ class BackendService(QObject):
         self.pose_analyzer.close()
         self.face_analyzer.close()
         self.esp32.close()
+        self.mobile_api.stop()
+        
+        if self.voice_thread.isRunning():
+            self.voice_thread.stop()

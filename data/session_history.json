@@ -148,5 +148,20 @@
     "lamp_brightness": 35,
     "auto_mode": true,
     "silent_mode": false
+  },
+  {
+    "date": "2026-06-01",
+    "timestamp": 1780283585,
+    "duration_minutes": 3,
+    "duration_seconds": 217,
+    "posture_alerts": 5,
+    "fatigue_alerts": 2,
+    "blink_count": 3,
+    "room_light_status": "Good",
+    "temperature_c": 30.0,
+    "fan_on": true,
+    "lamp_brightness": 35,
+    "auto_mode": true,
+    "silent_mode": false
   }
 ]
