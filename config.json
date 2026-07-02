@@ -13,6 +13,6 @@
   "minimize_to_tray": true,
   "default_temperature_c": 30.0,
   "default_lamp_brightness": 65,
-  "device_wifi_ssid": "",
-  "device_wifi_password": ""
+  "device_wifi_ssid": "slb",
+  "device_wifi_password": "12345678"
 }

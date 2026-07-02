@@ -11,20 +11,46 @@ class SessionLogger:
 
     def build_summary(self, state) -> dict:
         elapsed_seconds = int(time.time() - state.session_start)
+        elapsed_minutes = max(1, elapsed_seconds // 60)
+
+        posture_good_pct = round(
+            state.good_posture_frames / max(1, state.total_frames) * 100, 1
+        )
+
+        blink_rate = state.fatigue.blink_rate
+        blink_score = max(0.0, min(100.0, (1.0 - abs(blink_rate - 15.0) / 20.0) * 100.0)) if blink_rate > 0 else 50.0
+
+        alerts_per_min = (state.posture.alert_count + state.fatigue.alert_count) / elapsed_minutes
+        alert_score = max(0.0, min(100.0, 100.0 - alerts_per_min * 15.0))
+        fatigue_health_score = max(0.0, min(100.0, 100.0 - state.fatigue.fatigue_score))
+
+        quality_score = int(
+            posture_good_pct * 0.4
+            + blink_score * 0.2
+            + alert_score * 0.2
+            + fatigue_health_score * 0.2
+        )
+
         return {
             "date": datetime.now().strftime("%Y-%m-%d"),
             "timestamp": int(time.time()),
-            "duration_minutes": max(1, elapsed_seconds // 60),
+            "duration_minutes": elapsed_minutes,
             "duration_seconds": elapsed_seconds,
             "posture_alerts": state.posture.alert_count,
             "fatigue_alerts": state.fatigue.alert_count,
             "blink_count": state.fatigue.blink_count,
+            "nod_count": state.fatigue.nod_count,
             "room_light_status": state.environment.room_light_status,
             "temperature_c": state.environment.temperature_c,
             "fan_on": state.device.fan_on,
             "lamp_brightness": state.device.lamp_brightness,
             "auto_mode": state.device.auto_mode,
             "silent_mode": state.device.silent_mode,
+            "posture_good_pct": posture_good_pct,
+            "posture_score": state.posture.posture_score,
+            "fatigue_score": state.fatigue.fatigue_score,
+            "perclos": round(state.fatigue.perclos, 3),
+            "quality_score": quality_score,
         }
 
     def append_summary(self, summary: dict):
