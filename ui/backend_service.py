@@ -15,7 +15,7 @@ from config import CONFIG, SystemState, ensure_models, logger, save_config
 from data.reports import format_session_report
 from data.session_logger import SessionLogger
 from data.validation_logger import ValidationLogger
-from device.device_pairing import build_device_settings_payload, pair_device, update_device_connection
+from device.device_pairing import auto_pair_device, build_device_settings_payload, pair_device, update_device_connection
 from ui.mobile_api import MobileApiServer
 from voice.voice_controller import VoiceListenerThread
 
@@ -489,6 +489,20 @@ class BackendService(QObject):
         self.state.device.last_command_status = "Pairing updated"
         save_config(self.config)
         self.emit_status()
+
+    def auto_pair_device(self) -> dict:
+        """Zero-config pairing: uses this PC's current WiFi network to find
+        or provision the ESP32, no SSID/password/IP typed by the user."""
+        result = auto_pair_device(self.config)
+        self.esp32.close()
+        self.esp32 = pair_device(self.config)
+        self.alerts = AlertManager(self.config, self.esp32)
+        self.state.esp32_connected = self.esp32.connected
+        self.state.device.wifi_ssid = self.config.DEVICE_WIFI_SSID
+        self.state.device.paired_device_name = "ESP32 Desk Node" if self.state.esp32_connected else "Simulation Device"
+        self.state.device.last_command_status = "Auto-paired" if result.get("ok") else result.get("error", "Auto-pair failed")
+        self.emit_status()
+        return result
 
     def sync_device_settings(self):
         payload = build_device_settings_payload(self.config)

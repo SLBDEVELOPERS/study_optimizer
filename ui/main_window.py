@@ -51,6 +51,10 @@ class WebBridge(QObject):
     def pairDevice(self, payload: str):
         self.service.pair_device(json.loads(payload))
 
+    @Slot(result=str)
+    def autoPairDevice(self) -> str:
+        return json.dumps(self.service.auto_pair_device())
+
     @Slot()
     def syncDeviceSettings(self):
         self.service.sync_device_settings()

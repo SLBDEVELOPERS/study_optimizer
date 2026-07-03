@@ -4,7 +4,8 @@ import threading
 import requests
 import serial
 
-from config import logger
+from config import logger, save_config
+from device.discovery import discover_esp32
 
 
 class ESP32Communicator:
@@ -33,7 +34,14 @@ class ESP32Communicator:
                 self.connected = False
         else:
             self.connected = self.ping()
-            logger.info("ESP32 HTTP %s", "connected" if self.connected else "simulation mode")
+            if not self.connected:
+                logger.info("ESP32 not reachable at saved address, auto-discovering...")
+                found_url = discover_esp32(cached_url=self.config.ESP32_HTTP_URL)
+                if found_url:
+                    self.config.ESP32_HTTP_URL = found_url
+                    save_config(self.config)
+                    self.connected = self.ping()
+            logger.info("ESP32 HTTP %s (%s)", "connected" if self.connected else "simulation mode", self.config.ESP32_HTTP_URL)
 
     def _serial_send(self, payload: dict) -> bool:
         if not self.serial_conn:
