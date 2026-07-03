@@ -418,24 +418,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }));
     };
 
-    $("autoPairDeviceBtn").onclick = () => {
-      const btn = $("autoPairDeviceBtn");
-      btn.disabled = true;
-      btn.textContent = "Connecting...";
-      bridge.autoPairDevice((resultJson) => {
-        const result = JSON.parse(resultJson);
-        btn.disabled = false;
-        btn.textContent = "Auto-Connect Device";
-        if (result.ok) {
-          $("deviceWifiSsid").value = result.wifi_ssid || $("deviceWifiSsid").value;
-          $("deviceEndpoint").value = result.esp32_url || $("deviceEndpoint").value;
-          alert("Device connected: " + result.esp32_url);
-        } else {
-          alert("Auto-connect failed: " + result.error);
-        }
-      });
-    };
-
     $("pairDeviceBtn").onclick = () => {
       bridge.pairDevice(JSON.stringify({
         mode: $("deviceMode").value,

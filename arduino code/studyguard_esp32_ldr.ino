@@ -34,23 +34,11 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
-#include <Preferences.h>
-#include <ESPmDNS.h>
 #include "DHT.h"
 
 // ── WiFi Credentials ──────────────────────────────────────────
-// No longer hardcoded. Credentials are saved to flash (NVS) the first time
-// the desktop app provisions this device, and reused on every boot after.
-// If no credentials are saved (or they fail to connect), the device starts
-// its own setup hotspot so the desktop app can send new credentials.
-Preferences wifiPrefs;
-String WIFI_SSID = "";
-String WIFI_PASS = "";
-
-#define PROVISION_AP_SSID   "StudyGuard-Setup"
-#define MDNS_HOSTNAME        "studyguard"   // reachable at http://studyguard.local
-
-bool provisioningMode = false;
+const char* WIFI_SSID = "slb";
+const char* WIFI_PASS = "12345678";
 
 // ── Pins ──────────────────────────────────────────────────────
 #define DHTPIN      4
@@ -225,43 +213,19 @@ void setLamp(int pwm_0_255) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// WiFi credentials — persisted in flash (NVS)
+// WiFi — with timeout  (FIX #4)
 // ─────────────────────────────────────────────────────────────
-void loadWifiCredentials() {
-  wifiPrefs.begin("wifi", true);   // read-only
-  WIFI_SSID = wifiPrefs.getString("ssid", "");
-  WIFI_PASS = wifiPrefs.getString("pass", "");
-  wifiPrefs.end();
-}
-
-void saveWifiCredentials(const String& ssid, const String& pass) {
-  wifiPrefs.begin("wifi", false);  // read-write
-  wifiPrefs.putString("ssid", ssid);
-  wifiPrefs.putString("pass", pass);
-  wifiPrefs.end();
-}
-
-// ─────────────────────────────────────────────────────────────
-// WiFi — connect with timeout  (FIX #4)
-// Returns true if connected to the saved network.
-// ─────────────────────────────────────────────────────────────
-bool connectWiFi() {
-  if (WIFI_SSID.length() == 0) {
-    Serial.println("No saved WiFi credentials.");
-    return false;
-  }
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID.c_str(), WIFI_PASS.c_str());
+void connectWiFi() {
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Connecting WiFi");
 
   unsigned long start = millis();
 
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - start > WIFI_TIMEOUT_MS) {
-      Serial.println("\nWiFi timeout! Could not join saved network.");
+      Serial.println("\nWiFi timeout! Running without WiFi.");
       digitalWrite(LED_WIFI, LOW);
-      return false;                    // FIX #4: don't hang forever
+      return;                          // FIX #4: don't hang forever
     }
     delay(500);
     Serial.print(".");
@@ -272,64 +236,6 @@ bool connectWiFi() {
   Serial.println();
   Serial.print("Connected! IP: ");
   Serial.println(WiFi.localIP());
-
-  if (MDNS.begin(MDNS_HOSTNAME)) {
-    MDNS.addService("http", "tcp", 80);
-    Serial.println("mDNS responder started: http://" MDNS_HOSTNAME ".local");
-  }
-
-  return true;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Provisioning — SoftAP mode so the desktop app can send WiFi
-// credentials without anyone typing SSID/IP by hand. Entered when
-// there are no saved credentials, or the saved network can't be
-// joined at boot.
-// ─────────────────────────────────────────────────────────────
-void handleProvisionPing() {
-  server.send(200, "application/json", "{\"status\":\"ok\",\"mode\":\"provisioning\"}");
-}
-
-void handleProvision() {
-  if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{\"error\":\"No body\"}");
-    return;
-  }
-
-  StaticJsonDocument<256> doc;
-  DeserializationError err = deserializeJson(doc, server.arg("plain"));
-  if (err) {
-    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
-  }
-
-  String ssid = doc["ssid"] | "";
-  String pass = doc["password"] | "";
-  if (ssid.length() == 0) {
-    server.send(400, "application/json", "{\"error\":\"ssid required\"}");
-    return;
-  }
-
-  saveWifiCredentials(ssid, pass);
-  server.send(200, "application/json", "{\"ok\":true}");
-
-  Serial.println("Provisioned with new WiFi credentials. Rebooting...");
-  delay(500);          // let the HTTP response flush before we drop the AP
-  ESP.restart();        // rejoin as a station on the new network
-}
-
-void startProvisioningAP() {
-  provisioningMode = true;
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(PROVISION_AP_SSID);
-  Serial.print("Provisioning mode. Connect to WiFi \"");
-  Serial.print(PROVISION_AP_SSID);
-  Serial.println("\" and POST credentials to http://192.168.4.1/provision");
-
-  server.on("/ping", HTTP_GET, handleProvisionPing);
-  server.on("/provision", HTTP_POST, handleProvision);
-  server.begin();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -446,37 +352,6 @@ void handleCommand() {
   // FIX #1: response sent immediately — buzzer runs in background
 }
 
-// Lets the already-connected desktop app move this device onto a
-// different WiFi network (e.g. laptop switched networks) without
-// re-flashing or physical access.
-void handleSettings() {
-  if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{\"error\":\"No body\"}");
-    return;
-  }
-
-  StaticJsonDocument<384> doc;
-  DeserializationError err = deserializeJson(doc, server.arg("plain"));
-  if (err) {
-    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
-  }
-
-  if (doc.containsKey("wifi_ssid")) {
-    String ssid = doc["wifi_ssid"] | "";
-    String pass = doc["wifi_password"] | "";
-    if (ssid.length() > 0 && ssid != WIFI_SSID) {
-      saveWifiCredentials(ssid, pass);
-      server.send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
-      delay(500);
-      ESP.restart();
-      return;
-    }
-  }
-
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
 // ─────────────────────────────────────────────────────────────
 // Sensor Reading
 // ─────────────────────────────────────────────────────────────
@@ -536,10 +411,9 @@ void printStatus() {
 // HTTP Server Routes
 // ─────────────────────────────────────────────────────────────
 void setupServer() {
-  server.on("/ping",     HTTP_GET,  handlePing);
-  server.on("/status",   HTTP_GET,  handleStatus);
-  server.on("/command",  HTTP_POST, handleCommand);
-  server.on("/settings", HTTP_POST, handleSettings);
+  server.on("/ping",    HTTP_GET,  handlePing);
+  server.on("/status",  HTTP_GET,  handleStatus);
+  server.on("/command", HTTP_POST, handleCommand);
   server.begin();
   Serial.println("HTTP Server started");
 }
@@ -576,14 +450,10 @@ void setup() {
 ledcAttach(LAMP_PIN, PWM_FREQ, PWM_RES);   // single call, no channel needed
 ledcWrite(LAMP_PIN, 0);                     // use pin directly, not channel
 
-  // WiFi — load saved credentials, connect with timeout (FIX #4).
-  // No saved creds or join failed -> fall back to setup hotspot so the
-  // desktop app can provision this device without manual SSID/IP entry.
-  loadWifiCredentials();
-  if (connectWiFi()) {
+  // WiFi — with timeout  (FIX #4)
+  connectWiFi();
+  if (WiFi.status() == WL_CONNECTED) {
     setupServer();
-  } else {
-    startProvisioningAP();
   }
 
   // FIX #7: Non-blocking startup beep
@@ -597,12 +467,8 @@ ledcWrite(LAMP_PIN, 0);                     // use pin directly, not channel
 // ─────────────────────────────────────────────────────────────
 void loop() {
   // HTTP client handling — always first, never blocked
-  if (provisioningMode || WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED) {
     server.handleClient();
-  }
-
-  if (provisioningMode) {
-    return;   // waiting for the desktop app to POST /provision
   }
 
   // FIX #1 + FIX #7: Non-blocking buzzer state machine
