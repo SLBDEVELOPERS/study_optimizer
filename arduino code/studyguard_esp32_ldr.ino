@@ -34,11 +34,25 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include <ESPmDNS.h>
+#include <DNSServer.h>
 #include "DHT.h"
 
-// ── WiFi Credentials ──────────────────────────────────────────
-const char* WIFI_SSID = "slb";
-const char* WIFI_PASS = "12345678";
+// ── WiFi Provisioning ──────────────────────────────────────────
+// No more hardcoded SSID/password. Credentials are entered once by the
+// user via the device's own "StudyGuard-Setup" WiFi network (captive
+// portal) and stored in flash (NVS). To move the device to a different
+// network later, call POST /wifi/reset (or hold-reset if wired up) to
+// wipe the saved credentials and re-enter setup mode.
+#define AP_SSID          "StudyGuard-Setup"
+#define MDNS_HOSTNAME    "studyguard"
+#define PROVISION_PREFS_NS "wifi"
+
+Preferences wifiPrefs;
+DNSServer   dnsServer;
+const byte  DNS_PORT = 53;
+bool        provisioningMode = false;
 
 // ── Pins ──────────────────────────────────────────────────────
 #define DHTPIN      4
@@ -213,19 +227,44 @@ void setLamp(int pwm_0_255) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// WiFi — with timeout  (FIX #4)
+// WiFi Credential Storage (NVS)
 // ─────────────────────────────────────────────────────────────
-void connectWiFi() {
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+bool loadWifiCredentials(String &ssid, String &pass) {
+  wifiPrefs.begin(PROVISION_PREFS_NS, true);   // read-only
+  ssid = wifiPrefs.getString("ssid", "");
+  pass = wifiPrefs.getString("pass", "");
+  wifiPrefs.end();
+  return ssid.length() > 0;
+}
+
+void saveWifiCredentials(const String &ssid, const String &pass) {
+  wifiPrefs.begin(PROVISION_PREFS_NS, false);  // read-write
+  wifiPrefs.putString("ssid", ssid);
+  wifiPrefs.putString("pass", pass);
+  wifiPrefs.end();
+}
+
+void clearWifiCredentials() {
+  wifiPrefs.begin(PROVISION_PREFS_NS, false);
+  wifiPrefs.clear();
+  wifiPrefs.end();
+}
+
+// ─────────────────────────────────────────────────────────────
+// WiFi — connect using stored credentials, with timeout (FIX #4)
+// ─────────────────────────────────────────────────────────────
+bool connectWiFi(const String &ssid, const String &pass) {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid.c_str(), pass.c_str());
   Serial.print("Connecting WiFi");
 
   unsigned long start = millis();
 
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - start > WIFI_TIMEOUT_MS) {
-      Serial.println("\nWiFi timeout! Running without WiFi.");
+      Serial.println("\nWiFi timeout! Could not join stored network.");
       digitalWrite(LED_WIFI, LOW);
-      return;                          // FIX #4: don't hang forever
+      return false;                    // FIX #4: don't hang forever
     }
     delay(500);
     Serial.print(".");
@@ -236,6 +275,85 @@ void connectWiFi() {
   Serial.println();
   Serial.print("Connected! IP: ");
   Serial.println(WiFi.localIP());
+
+  if (MDNS.begin(MDNS_HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("mDNS responder started: " MDNS_HOSTNAME ".local");
+  } else {
+    Serial.println("mDNS start failed");
+  }
+
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Captive-portal provisioning (SoftAP + DNS redirect + web form)
+// ─────────────────────────────────────────────────────────────
+const char PROVISION_PAGE[] PROGMEM = R"HTML(
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StudyGuard Setup</title>
+<style>body{font-family:sans-serif;max-width:360px;margin:40px auto;padding:0 16px}
+input{width:100%;padding:8px;margin:6px 0;box-sizing:border-box}
+button{width:100%;padding:10px;background:#2563eb;color:#fff;border:0;border-radius:4px}</style>
+</head><body>
+<h2>StudyGuard WiFi Setup</h2>
+<p>Enter your home/office WiFi details. The device will restart and join that network.</p>
+<form action="/provision" method="POST">
+<label>WiFi Name (SSID)</label><input name="ssid" required>
+<label>WiFi Password</label><input name="password" type="password">
+<button type="submit">Connect</button>
+</form></body></html>
+)HTML";
+
+void handleProvisionRoot() {
+  server.send_P(200, "text/html", PROVISION_PAGE);
+}
+
+void handleProvisionSubmit() {
+  if (!server.hasArg("ssid") || server.arg("ssid").length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"ssid required\"}");
+    return;
+  }
+  String ssid = server.arg("ssid");
+  String pass = server.arg("password");
+
+  saveWifiCredentials(ssid, pass);
+  server.send(200, "text/html", "<html><body><h3>Saved. Rebooting and connecting…</h3></body></html>");
+  delay(1000);
+  ESP.restart();
+}
+
+// Captive-portal redirect: any unmatched request sends the browser to the setup page
+void handleProvisionNotFound() {
+  server.sendHeader("Location", "http://192.168.4.1/", true);
+  server.send(302, "text/plain", "");
+}
+
+void startProvisioningAP() {
+  provisioningMode = true;
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID);   // open network, no password
+  IPAddress apIP = WiFi.softAPIP();
+  Serial.print("Provisioning AP started: ");
+  Serial.println(AP_SSID);
+  Serial.print("AP IP: ");
+  Serial.println(apIP);
+
+  dnsServer.start(DNS_PORT, "*", apIP);   // redirect all DNS to captive portal
+
+  server.on("/", HTTP_GET, handleProvisionRoot);
+  server.on("/provision", HTTP_POST, handleProvisionSubmit);
+  server.onNotFound(handleProvisionNotFound);
+  server.begin();
+}
+
+// Wipes stored credentials and re-enters provisioning mode (used when the
+// device needs to move to a different WiFi network)
+void handleWifiReset() {
+  server.send(200, "application/json", "{\"result\":\"ok\"}");
+  delay(300);
+  clearWifiCredentials();
+  ESP.restart();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -411,9 +529,10 @@ void printStatus() {
 // HTTP Server Routes
 // ─────────────────────────────────────────────────────────────
 void setupServer() {
-  server.on("/ping",    HTTP_GET,  handlePing);
-  server.on("/status",  HTTP_GET,  handleStatus);
-  server.on("/command", HTTP_POST, handleCommand);
+  server.on("/ping",       HTTP_GET,  handlePing);
+  server.on("/status",     HTTP_GET,  handleStatus);
+  server.on("/command",    HTTP_POST, handleCommand);
+  server.on("/wifi/reset", HTTP_POST, handleWifiReset);
   server.begin();
   Serial.println("HTTP Server started");
 }
@@ -450,10 +569,14 @@ void setup() {
 ledcAttach(LAMP_PIN, PWM_FREQ, PWM_RES);   // single call, no channel needed
 ledcWrite(LAMP_PIN, 0);                     // use pin directly, not channel
 
-  // WiFi — with timeout  (FIX #4)
-  connectWiFi();
-  if (WiFi.status() == WL_CONNECTED) {
+  // WiFi — try stored credentials first; fall back to captive-portal setup
+  String storedSsid, storedPass;
+  bool haveCreds = loadWifiCredentials(storedSsid, storedPass);
+
+  if (haveCreds && connectWiFi(storedSsid, storedPass)) {
     setupServer();
+  } else {
+    startProvisioningAP();
   }
 
   // FIX #7: Non-blocking startup beep
@@ -467,7 +590,10 @@ ledcWrite(LAMP_PIN, 0);                     // use pin directly, not channel
 // ─────────────────────────────────────────────────────────────
 void loop() {
   // HTTP client handling — always first, never blocked
-  if (WiFi.status() == WL_CONNECTED) {
+  if (provisioningMode) {
+    dnsServer.processNextRequest();
+    server.handleClient();
+  } else if (WiFi.status() == WL_CONNECTED) {
     server.handleClient();
   }
 

@@ -15,7 +15,13 @@ from config import CONFIG, SystemState, ensure_models, logger, save_config
 from data.reports import format_session_report
 from data.session_logger import SessionLogger
 from data.validation_logger import ValidationLogger
-from device.device_pairing import build_device_settings_payload, pair_device, update_device_connection
+from device.device_pairing import (
+    auto_discover_endpoint,
+    build_device_settings_payload,
+    pair_device,
+    provision_wifi,
+    update_device_connection,
+)
 from ui.mobile_api import MobileApiServer
 from voice.voice_controller import VoiceListenerThread
 
@@ -89,7 +95,6 @@ class BackendService(QObject):
         self.state.device.lamp_brightness = self.config.DEFAULT_LAMP_BRIGHTNESS
         self.state.device.auto_mode = self.config.AUTO_MODE
         self.state.device.silent_mode = self.config.SILENT_MODE
-        self.state.device.wifi_ssid = self.config.DEVICE_WIFI_SSID
 
         self.esp32 = pair_device(self.config)
         self.state.esp32_connected = self.esp32.connected
@@ -461,8 +466,6 @@ class BackendService(QObject):
             "minimize_to_tray": self.config.MINIMIZE_TO_TRAY,
             "default_temperature_c": self.config.DEFAULT_TEMPERATURE_C,
             "default_lamp_brightness": self.config.DEFAULT_LAMP_BRIGHTNESS,
-            "device_wifi_ssid": self.config.DEVICE_WIFI_SSID,
-            "device_wifi_password": self.config.DEVICE_WIFI_PASSWORD,
             "validation_log_enabled": self.config.VALIDATION_LOG_ENABLED,
             "validation_log_every_n_frames": self.config.VALIDATION_LOG_EVERY_N_FRAMES,
         }
@@ -474,8 +477,6 @@ class BackendService(QObject):
         }
 
     def pair_device(self, payload: dict):
-        self.config.DEVICE_WIFI_SSID = payload.get("device_wifi_ssid", self.config.DEVICE_WIFI_SSID)
-        self.config.DEVICE_WIFI_PASSWORD = payload.get("device_wifi_password", self.config.DEVICE_WIFI_PASSWORD)
         endpoint = payload.get("endpoint", "").strip()
         mode = payload.get("mode", self.config.ESP32_MODE)
         if endpoint:
@@ -484,10 +485,37 @@ class BackendService(QObject):
         self.esp32 = pair_device(self.config)
         self.alerts = AlertManager(self.config, self.esp32)
         self.state.esp32_connected = self.esp32.connected
-        self.state.device.wifi_ssid = self.config.DEVICE_WIFI_SSID
         self.state.device.paired_device_name = "ESP32 Desk Node" if self.state.esp32_connected else "Simulation Device"
         self.state.device.last_command_status = "Pairing updated"
         save_config(self.config)
+        self.emit_status()
+
+    def discover_device(self):
+        """Find the device via mDNS (studyguard.local) instead of a hand-typed IP."""
+        url = auto_discover_endpoint()
+        if url:
+            self.pair_device({"endpoint": url, "mode": "http"})
+            self.state.device.last_command_status = f"Device discovered at {url}"
+        else:
+            self.state.device.last_command_status = "Device not found — is it on this network?"
+        self.emit_status()
+
+    def provision_device_wifi(self, payload: dict):
+        """Push new WiFi credentials to a device broadcasting StudyGuard-Setup
+        (first-time setup, or after the device's WiFi was reset)."""
+        ssid = payload.get("ssid", "").strip()
+        password = payload.get("password", "")
+        if not ssid:
+            self.state.device.last_command_status = "WiFi setup failed: SSID required"
+            self.emit_status()
+            return
+        sent = provision_wifi(ssid, password)
+        if sent:
+            self.state.device.last_command_status = "WiFi sent to device — it will reboot and reconnect"
+        else:
+            self.state.device.last_command_status = (
+                "Could not reach device setup AP — connect this PC to StudyGuard-Setup first"
+            )
         self.emit_status()
 
     def sync_device_settings(self):

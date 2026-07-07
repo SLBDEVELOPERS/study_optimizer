@@ -105,8 +105,9 @@ class Config:
     ESP32_SERIAL_PORT: str = os.getenv("ESP32_SERIAL_PORT", "/dev/ttyUSB0")
     ESP32_BAUD_RATE: int = 115200
     ESP32_HTTP_URL: str = os.getenv("ESP32_HTTP_URL", "http://192.168.43.186")
-    DEVICE_WIFI_SSID: str = "slb"
-    DEVICE_WIFI_PASSWORD: str = "12345678"
+    # Auto-managed cache of the last IP resolved via mDNS (studyguard.local) —
+    # tried first for speed, never something the user edits by hand.
+    ESP32_LAST_KNOWN_IP: str = ""
 
     DEFAULT_TEMPERATURE_C: float = 30.0
     DEFAULT_LAMP_BRIGHTNESS: int = 65
@@ -157,8 +158,7 @@ class Config:
             "minimize_to_tray": self.MINIMIZE_TO_TRAY,
             "default_temperature_c": self.DEFAULT_TEMPERATURE_C,
             "default_lamp_brightness": self.DEFAULT_LAMP_BRIGHTNESS,
-            "device_wifi_ssid": self.DEVICE_WIFI_SSID,
-            "device_wifi_password": self.DEVICE_WIFI_PASSWORD,
+            "esp32_last_known_ip": self.ESP32_LAST_KNOWN_IP,
             "posture_baseline_z": self.POSTURE_BASELINE_Z,
             "posture_baseline_v": self.POSTURE_BASELINE_V,
             "posture_baseline_ear_z": self.POSTURE_BASELINE_EAR_Z,
@@ -199,8 +199,7 @@ class Config:
         self.MINIMIZE_TO_TRAY = bool(payload.get("minimize_to_tray", self.MINIMIZE_TO_TRAY))
         self.DEFAULT_TEMPERATURE_C = float(payload.get("default_temperature_c", self.DEFAULT_TEMPERATURE_C))
         self.DEFAULT_LAMP_BRIGHTNESS = int(payload.get("default_lamp_brightness", self.DEFAULT_LAMP_BRIGHTNESS))
-        self.DEVICE_WIFI_SSID = payload.get("device_wifi_ssid", self.DEVICE_WIFI_SSID)
-        self.DEVICE_WIFI_PASSWORD = payload.get("device_wifi_password", self.DEVICE_WIFI_PASSWORD)
+        self.ESP32_LAST_KNOWN_IP = payload.get("esp32_last_known_ip", self.ESP32_LAST_KNOWN_IP)
         self.POSTURE_BASELINE_Z = float(payload.get("posture_baseline_z", self.POSTURE_BASELINE_Z))
         self.POSTURE_BASELINE_V = float(payload.get("posture_baseline_v", self.POSTURE_BASELINE_V))
         self.POSTURE_BASELINE_EAR_Z = float(payload.get("posture_baseline_ear_z", self.POSTURE_BASELINE_EAR_Z))
@@ -315,7 +314,6 @@ class DeviceState:
     paired_device_name: str = "ESP32 Desk Node"
     auto_mode: bool = True
     silent_mode: bool = False
-    wifi_ssid: str = ""
 
 
 @dataclass
