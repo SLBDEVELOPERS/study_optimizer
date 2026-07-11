@@ -61,13 +61,13 @@ const char* WIFI_PASS = "12345678";
 #define PWM_RES       8     // 0–255
 
 // ── Auto-Control Thresholds ───────────────────────────────────
-#define TEMP_FAN_ON    30.0f
-#define TEMP_FAN_OFF   28.0f
+#define TEMP_FAN_ON    28.0f
+#define TEMP_FAN_OFF   25.0f
 // LDR raw ADC values (0-4095). These are rough starting points —
 // recalibrate by watching Serial output in your actual room lighting.
 // Lower value = darker (LDR resistance higher, divider pulls toward GND)
-#define LUX_LOW        1200
-#define LUX_GOOD       2500
+#define LUX_LOW        200
+#define LUX_GOOD       300
 
 // ── Buzzer Tones ──────────────────────────────────────────────
 #define BUZZ_POSTURE_HZ   1500
@@ -208,8 +208,8 @@ void setFan(bool state) {
 void setLamp(int pwm_0_255) {
   lampPWM = constrain(pwm_0_255, 0, 255);
   lampPct = map(lampPWM, 0, 255, 0, 100);   // FIX #5: keep both
-  ledcWrite(LAMP_CHANNEL, lampPWM);
-  digitalWrite(LED_LIGHT, lampPWM > 30 ? HIGH : LOW);
+  ledcWrite(LAMP_PIN, lampPWM);
+  digitalWrite(LED_LIGHT, lampPWM > 50 ? HIGH : LOW);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -372,8 +372,8 @@ void autoControlLamp() {
   if (manualLampOverride) return;     // FIX #3: skip if manual
 
   if      (lux < LUX_LOW)  setLamp(255);
-  else if (lux < LUX_GOOD) setLamp(160);
-  else                      setLamp(50);
+  else if (lux < LUX_GOOD) setLamp(102);
+  else                      setLamp(26);
 }
 
 void autoControlFan() {
