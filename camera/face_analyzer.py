@@ -94,8 +94,9 @@ class FaceEyeAnalyzer:
         self._nose_drop_baseline: float | None = None
         self._nod_drop_peak: float = 0.0
         self._nod_down_pending: bool = False
+        self._nod_pending_start: float = 0.0
         self._last_face_seen: float = time.time()
-        self._yawn_candidate_frontal = True
+        self._yawn_frontal_frames: int = 0
         self._too_close_flag = TemporalFlag(config.FACE_DISTANCE_CONFIRM_FRAMES, config.FACE_DISTANCE_CONFIRM_FRAMES)
         self._yawn_flag = TemporalFlag(1, max(3, config.MAR_CONSEC_FRAMES // 2))
         self._drowsy_flag = TemporalFlag(config.FATIGUE_CONFIRM_FRAMES, config.FATIGUE_RECOVERY_FRAMES)
@@ -174,13 +175,16 @@ class FaceEyeAnalyzer:
         fatigue_state.ear_history.append(ear_avg)
 
         # ── Personal EAR baseline: collect open-eye samples ───────────────
-        if not self._personal_ear_valid and ear_avg > 0.20:
+        # Floor is deliberately low (below typical open-eye EAR) so users
+        # with naturally smaller/narrower eyes still accumulate enough
+        # samples to personalise — 0.15 still excludes genuine blinks/closures.
+        if not self._personal_ear_valid and ear_avg > 0.15:
             self._personal_ear_samples.append(ear_avg)
             if len(self._personal_ear_samples) >= _MIN_EAR_BASELINE_SAMPLES:
                 sorted_s = sorted(self._personal_ear_samples)
                 # 75th percentile = typical open-eye EAR, robust to partial blinks
                 p75 = sorted_s[int(len(sorted_s) * 0.75)]
-                if p75 > 0.18:
+                if p75 > 0.15:
                     self._personal_ear_baseline = p75
                     self._personal_ear_valid = True
                     self.config.PERSONAL_EAR_BASELINE = p75
@@ -212,11 +216,18 @@ class FaceEyeAnalyzer:
         fatigue_state.nod_drop_ratio = round(max(0.0, head_drop), 3)
         if stable_face_scale:
             if head_drop > self.config.NOD_DROP_RATIO:
+                if not self._nod_down_pending:
+                    self._nod_pending_start = now
                 self._nod_down_pending = True
                 self._nod_drop_peak = max(self._nod_drop_peak, head_drop)
             elif self._nod_down_pending and head_drop < self.config.NOD_RECOVER_RATIO:
-                fatigue_state.nod_count += 1
-                fatigue_state.nod_times.append(now)
+                # A quick drop-and-recover is a drowsy micro-nod. A dwell
+                # that lingers past NOD_MAX_DURATION_SECONDS is more likely
+                # a deliberate posture change (e.g. reading notes) — don't
+                # count it, just settle into the new baseline.
+                if now - self._nod_pending_start <= self.config.NOD_MAX_DURATION_SECONDS:
+                    fatigue_state.nod_count += 1
+                    fatigue_state.nod_times.append(now)
                 self._nod_down_pending = False
                 self._nod_drop_peak = 0.0
             elif not self._nod_down_pending:
@@ -255,21 +266,25 @@ class FaceEyeAnalyzer:
         fatigue_state.mar = mar
 
         face_frontal = fatigue_state.gaze_away_ratio <= self.config.YAWN_MAX_GAZE_AWAY_RATIO
-        if mar > self.config.MAR_THRESHOLD and not face_frontal:
-            self._yawn_candidate_frontal = False
-        if mar > self.config.MAR_THRESHOLD and face_frontal:
+        mouth_open = mar > self.config.MAR_THRESHOLD
+        if mouth_open:
+            # Count every open-mouth frame regardless of momentary gaze —
+            # a single glance-away frame mid-yawn shouldn't split/kill it.
+            # Frontal-ness is judged by majority over the whole window instead.
             fatigue_state.consec_mouth_open += 1
-            self._yawn_candidate_frontal = self._yawn_candidate_frontal and face_frontal
+            if face_frontal:
+                self._yawn_frontal_frames += 1
         else:
             yawn_frames = fatigue_state.consec_mouth_open
+            frontal_ratio = (self._yawn_frontal_frames / yawn_frames) if yawn_frames else 0.0
             if (
-                self._yawn_candidate_frontal
+                frontal_ratio >= 0.7
                 and self.config.YAWN_MIN_FRAMES <= yawn_frames <= self.config.YAWN_MAX_FRAMES
             ):
                 fatigue_state.yawn_count += 1
                 fatigue_state.yawn_times.append(now)
             fatigue_state.consec_mouth_open = 0
-            self._yawn_candidate_frontal = True
+            self._yawn_frontal_frames = 0
 
         yawn_active = (
             face_frontal
@@ -363,7 +378,14 @@ class FaceEyeAnalyzer:
         fatigue_state.focus_loss_reason = "Looking away" if fatigue_state.is_focus_lost else ""
 
         was_drowsy = fatigue_state.is_drowsy
-        drowsy_raw = score_signal or perclos_signal or blink_signal or yawn_signal or nod_signal
+        # Eye-closure evidence (perclos/blink) or the weighted composite score
+        # is trusted on its own. Yawning and nodding are common for reasons
+        # unrelated to fatigue (talking, stretching, reading posture), so
+        # either alone is not enough — only count them once they corroborate
+        # each other.
+        eye_evidence = perclos_signal or blink_signal
+        secondary_signal_count = int(yawn_signal) + int(nod_signal)
+        drowsy_raw = eye_evidence or score_signal or secondary_signal_count >= 2
         fatigue_state.is_drowsy = self._drowsy_flag.update(drowsy_raw)
         if fatigue_state.is_drowsy and not was_drowsy:
             fatigue_state.drowsy_start = now
@@ -415,8 +437,9 @@ class FaceEyeAnalyzer:
         self._nose_drop_baseline = None
         self._nod_drop_peak = 0.0
         self._nod_down_pending = False
+        self._nod_pending_start = 0.0
         self._last_face_seen = time.time()
-        self._yawn_candidate_frontal = True
+        self._yawn_frontal_frames = 0
         self._too_close_flag.reset()
         self._yawn_flag.reset()
         self._drowsy_flag.reset()

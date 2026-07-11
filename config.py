@@ -75,6 +75,9 @@ class Config:
     NOD_DROP_RATIO: float = 0.035
     NOD_RECOVER_RATIO: float = 0.018
     NOD_MAX_FACE_SCALE_DELTA: float = 0.025
+    # A head-down dwell that lasts longer than this is treated as a posture
+    # change (e.g. reading notes), not a drowsy micro-nod, and isn't counted.
+    NOD_MAX_DURATION_SECONDS: float = 3.0
 
     FORWARD_HEAD_Z_DELTA: float = 0.12  # deviation from calibrated baseline (normalised by shoulder width)
     NOSE_DROP_RATIO: float = 0.12       # deviation from calibrated baseline (normalised by shoulder width)
@@ -141,6 +144,9 @@ class Config:
 
         self.SLOUCH_ANGLE_THRESHOLD = float(self.POSTURE_SENSITIVITY)
         self.EAR_THRESHOLD = round(self.FATIGUE_SENSITIVITY / 100.0, 2)
+        # Keep the sustained-closure threshold a fixed margin above the
+        # blink threshold so the sensitivity slider scales both together.
+        self.DROWSY_EAR_AVG = round(self.EAR_THRESHOLD + 0.04, 2)
 
     def to_user_settings(self) -> dict:
         return {
