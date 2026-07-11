@@ -765,7 +765,7 @@
                 
                 <div class="settings-tab-panel" id="settings-devices">
                   <h3>Connected Devices</h3>
-                  <p class="settings-desc">Manage ESP32 endpoint and local Wi-Fi settings.</p>
+                  <p class="settings-desc">The device is found automatically on your network — no IP address to type in.</p>
                   <div class="settings-form">
                     <div class="form-row">
                       <label for="deviceMode">ESP32 Mode</label>
@@ -776,16 +776,34 @@
                     </div>
                     <div class="form-row">
                       <label for="deviceEndpoint">ESP32 Endpoint</label>
-                      <input id="deviceEndpoint" class="select-input" placeholder="http://192.168.1.100 or COM3">
+                      <input id="deviceEndpoint" class="select-input" placeholder="Auto-discovered, or COM3 for serial">
+                    </div>
+                  </div>
+                  <div class="settings-footer" style="padding-left:0">
+                    <button class="btn btn-outline" id="discoverDeviceBtn">Auto-Discover Device</button>
+                  </div>
+
+                  <h3 style="margin-top:24px">Device Wi-Fi Setup</h3>
+                  <p class="settings-desc">
+                    First-time setup or moving to a new network: on your phone/laptop, connect to the
+                    <strong>StudyGuard-Setup</strong> Wi-Fi network the device broadcasts, then enter your
+                    network's details below and send them. The device saves the credentials, reboots, and
+                    joins your network — no reflashing or config-file editing needed.
+                    To move the device to a different network later, use the device's <code>/wifi/reset</code>
+                    endpoint to make it broadcast StudyGuard-Setup again.
+                  </p>
+                  <div class="settings-form">
+                    <div class="form-row">
+                      <label for="newWifiSsid">Wi-Fi Name (SSID)</label>
+                      <input id="newWifiSsid" class="select-input" placeholder="Your Wi-Fi network name">
                     </div>
                     <div class="form-row">
-                      <label for="deviceWifiSsid">Wi-Fi SSID</label>
-                      <input id="deviceWifiSsid" class="select-input" placeholder="Device Wi-Fi SSID">
+                      <label for="newWifiPassword">Wi-Fi Password</label>
+                      <input id="newWifiPassword" type="password" class="select-input" placeholder="Your Wi-Fi password">
                     </div>
-                    <div class="form-row">
-                      <label for="deviceWifiPassword">Wi-Fi Password</label>
-                      <input id="deviceWifiPassword" type="password" class="select-input" placeholder="Device Wi-Fi Password">
-                    </div>
+                  </div>
+                  <div class="settings-footer" style="padding-left:0">
+                    <button class="btn btn-outline" id="provisionWifiBtn">Send Wi-Fi to Device</button>
                   </div>
                 </div>
 

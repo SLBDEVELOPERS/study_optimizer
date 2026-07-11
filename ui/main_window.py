@@ -52,6 +52,14 @@ class WebBridge(QObject):
         self.service.pair_device(json.loads(payload))
 
     @Slot()
+    def discoverDevice(self):
+        self.service.discover_device()
+
+    @Slot(str)
+    def provisionDeviceWifi(self, payload: str):
+        self.service.provision_device_wifi(json.loads(payload))
+
+    @Slot()
     def syncDeviceSettings(self):
         self.service.sync_device_settings()
 

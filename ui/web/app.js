@@ -273,8 +273,6 @@ document.addEventListener("DOMContentLoaded", () => {
     $("startupAutoLaunch").checked = settings.startup_auto_launch;
     $("minimizeToTray").checked = settings.minimize_to_tray;
     $("deviceEndpoint").value = settings.esp32_url || "";
-    $("deviceWifiSsid").value = settings.device_wifi_ssid || "";
-    $("deviceWifiPassword").value = settings.device_wifi_password || "";
   }
 
   function updateReports(payload) {
@@ -413,8 +411,6 @@ document.addEventListener("DOMContentLoaded", () => {
         minimize_to_tray: $("minimizeToTray").checked,
         default_temperature_c: Number($("temperatureValue").value),
         default_lamp_brightness: Number($("defaultLampBrightness").value),
-        device_wifi_ssid: $("deviceWifiSsid").value,
-        device_wifi_password: $("deviceWifiPassword").value,
       }));
     };
 
@@ -422,9 +418,15 @@ document.addEventListener("DOMContentLoaded", () => {
       bridge.pairDevice(JSON.stringify({
         mode: $("deviceMode").value,
         endpoint: $("deviceEndpoint").value,
-        device_wifi_ssid: $("deviceWifiSsid").value,
-        device_wifi_password: $("deviceWifiPassword").value,
       }));
+    };
+    $("discoverDeviceBtn").onclick = () => bridge.discoverDevice();
+    $("provisionWifiBtn").onclick = () => {
+      bridge.provisionDeviceWifi(JSON.stringify({
+        ssid: $("newWifiSsid").value,
+        password: $("newWifiPassword").value,
+      }));
+      $("newWifiPassword").value = "";
     };
     $("syncDeviceBtn").onclick = () => bridge.syncDeviceSettings();
     $("refreshDeviceBtn").onclick = () => bridge.refreshDeviceStatus();

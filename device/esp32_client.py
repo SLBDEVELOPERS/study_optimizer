@@ -3,8 +3,28 @@ import threading
 
 import requests
 import serial
+from zeroconf import Zeroconf
 
-from config import logger
+from config import logger, save_config
+
+MDNS_SERVICE_TYPE = "_http._tcp.local."
+MDNS_INSTANCE_NAME = "studyguard._http._tcp.local."
+
+
+def resolve_device_url(timeout: float = 3.0) -> str | None:
+    """Look up the ESP32 device via mDNS (studyguard.local) instead of a hand-typed IP."""
+    zc = Zeroconf()
+    try:
+        info = zc.get_service_info(MDNS_SERVICE_TYPE, MDNS_INSTANCE_NAME, timeout=int(timeout * 1000))
+        if info:
+            addresses = info.parsed_addresses()
+            if addresses:
+                return f"http://{addresses[0]}"
+    except Exception as exc:
+        logger.warning("mDNS resolution failed: %s", exc)
+    finally:
+        zc.close()
+    return None
 
 
 class ESP32Communicator:
@@ -33,7 +53,19 @@ class ESP32Communicator:
                 self.connected = False
         else:
             self.connected = self.ping()
+            if not self.connected:
+                self._rediscover()
             logger.info("ESP32 HTTP %s", "connected" if self.connected else "simulation mode")
+
+    def _rediscover(self):
+        """Cached IP failed — try mDNS to find the device on its (possibly new) network."""
+        url = resolve_device_url()
+        if not url:
+            return
+        self.config.ESP32_HTTP_URL = url
+        self.config.ESP32_LAST_KNOWN_IP = url
+        save_config(self.config)
+        self.connected = self.ping()
 
     def _serial_send(self, payload: dict) -> bool:
         if not self.serial_conn:
