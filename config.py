@@ -59,6 +59,10 @@ class Config:
     EAR_THRESHOLD: float = 0.22
     EAR_CONSEC_FRAMES: int = 2
     EAR_SMOOTH_FRAMES: int = 3
+    BLINK_MIN_CLOSED_SECONDS: float = 0.06
+    BLINK_MAX_CLOSED_SECONDS: float = 0.50
+    PROLONGED_EYE_CLOSURE_SECONDS: float = 0.80
+    PERCLOS_WINDOW_SECONDS: float = 60.0
     DROWSY_BLINK_RATE_LOW: float = 8.0
     DROWSY_BLINK_RATE_HIGH: float = 25.0
     DROWSY_EAR_AVG: float = 0.26
@@ -87,8 +91,12 @@ class Config:
     CALIBRATION_MAX_SAMPLE_DRIFT: float = 0.10
     POSTURE_CONFIRM_FRAMES: int = 9
     POSTURE_RECOVERY_FRAMES: int = 6
+    POSTURE_DETECT_CONFIRM_SECONDS: float = 0.75
+    POSTURE_DETECT_RECOVERY_SECONDS: float = 0.50
     FATIGUE_CONFIRM_FRAMES: int = 15
     FATIGUE_RECOVERY_FRAMES: int = 15
+    FATIGUE_DETECT_CONFIRM_SECONDS: float = 2.0
+    FATIGUE_DETECT_RECOVERY_SECONDS: float = 2.0
     FACE_DISTANCE_CONFIRM_FRAMES: int = 12
     FOCUS_LOSS_CONFIRM_SECONDS: float = 8.0
     GAZE_AWAY_CONFIRM_SECONDS: float = 5.0
@@ -300,6 +308,7 @@ class FatigueState:
     nod_count: int = 0
     nod_times: deque = field(default_factory=deque)
     eye_closed_history: deque = field(default_factory=lambda: deque(maxlen=1800))
+    eye_observations: deque = field(default_factory=deque)
     session_start: float = field(default_factory=time.time)
     last_alert_time: float = 0.0
     alert_count: int = 0

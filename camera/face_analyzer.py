@@ -10,7 +10,7 @@ from mediapipe.tasks.python import vision as mp_vision
 from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions
 
 from camera.scoring import calculate_fatigue_score, threshold_confidence
-from camera.temporal import TemporalFlag
+from camera.temporal import TemporalDurationFlag, TemporalFlag
 from config import save_config
 
 
@@ -97,9 +97,18 @@ class FaceEyeAnalyzer:
         self._nod_pending_start: float = 0.0
         self._last_face_seen: float = time.time()
         self._yawn_frontal_frames: int = 0
-        self._too_close_flag = TemporalFlag(config.FACE_DISTANCE_CONFIRM_FRAMES, config.FACE_DISTANCE_CONFIRM_FRAMES)
+        self._eye_state = "open"
+        self._eye_closed_since: float | None = None
+        self._prolonged_closure = False
+        self._too_close_flag = TemporalDurationFlag(
+            config.POSTURE_DETECT_CONFIRM_SECONDS,
+            config.POSTURE_DETECT_RECOVERY_SECONDS,
+        )
         self._yawn_flag = TemporalFlag(1, max(3, config.MAR_CONSEC_FRAMES // 2))
-        self._drowsy_flag = TemporalFlag(config.FATIGUE_CONFIRM_FRAMES, config.FATIGUE_RECOVERY_FRAMES)
+        self._drowsy_flag = TemporalDurationFlag(
+            config.FATIGUE_DETECT_CONFIRM_SECONDS,
+            config.FATIGUE_DETECT_RECOVERY_SECONDS,
+        )
         self._no_face_focus_flag = TemporalFlag(
             int(config.FOCUS_LOSS_CONFIRM_SECONDS * max(config.FPS, 1)),
             int(2 * max(config.FPS, 1)),
@@ -128,6 +137,38 @@ class FaceEyeAnalyzer:
         fatigue_state.ear_smooth_buf.append(raw_ear)
         return sum(fatigue_state.ear_smooth_buf) / len(fatigue_state.ear_smooth_buf)
 
+    def _reset_eye_evidence(self, fatigue_state, now: float):
+        fatigue_state.ear_history.clear()
+        fatigue_state.ear_smooth_buf.clear()
+        fatigue_state.eye_closed_history.clear()
+        fatigue_state.eye_observations.clear()
+        fatigue_state.blink_times.clear()
+        fatigue_state.blink_rate = 0.0
+        fatigue_state.perclos = 0.0
+        fatigue_state.consec_below_threshold = 0
+        fatigue_state.session_start = now
+        self._eye_state = "open"
+        self._eye_closed_since = None
+        self._prolonged_closure = False
+        self._drowsy_flag.reset()
+
+    def _update_perclos(self, fatigue_state, now: float, closed: bool):
+        observations = fatigue_state.eye_observations
+        observations.append((now, closed))
+        cutoff = now - self.config.PERCLOS_WINDOW_SECONDS
+        while len(observations) > 1 and observations[1][0] < cutoff:
+            observations.popleft()
+
+        closed_time = valid_time = 0.0
+        for index in range(1, len(observations)):
+            previous_at, previous_closed = observations[index - 1]
+            current_at = observations[index][0]
+            duration = min(0.25, max(0.0, current_at - previous_at))
+            valid_time += duration
+            if previous_closed:
+                closed_time += duration
+        fatigue_state.perclos = closed_time / valid_time if valid_time >= 1.0 else 0.0
+
     # ── Main analysis ──────────────────────────────────────────────────────
 
     def analyze(self, frame_rgb: np.ndarray, fatigue_state, posture_state, height: int, width: int):
@@ -144,6 +185,10 @@ class FaceEyeAnalyzer:
             fatigue_state.is_focus_lost = self._no_face_focus_flag.update(focus_raw)
             fatigue_state.focus_loss_reason = "Face not visible" if fatigue_state.is_focus_lost else ""
             fatigue_state.focus_confidence = min(1.0, no_face_elapsed / max(self.config.FOCUS_LOSS_CONFIRM_SECONDS, 1e-6))
+            # Missing-face time is unknown, never closed-eye evidence.
+            self._eye_state = "open"
+            self._eye_closed_since = None
+            self._prolonged_closure = False
             return fatigue_state, posture_state, None
 
         landmarks = result.face_landmarks[0]
@@ -167,18 +212,27 @@ class FaceEyeAnalyzer:
         raw_ear_right = eye_aspect_ratio(eye_points(_RIGHT_EYE))
         raw_ear_avg   = (raw_ear_left + raw_ear_right) / 2.0
 
-        ear_avg = self._smooth_ear(fatigue_state, raw_ear_avg)
+        eye_difference = abs(raw_ear_left - raw_ear_right)
+        eye_valid = (
+            math.isfinite(raw_ear_avg)
+            and 0.05 <= raw_ear_left <= 0.70
+            and 0.05 <= raw_ear_right <= 0.70
+            and eye_difference <= max(0.06, raw_ear_avg * 0.35)
+        )
+        ear_avg = self._smooth_ear(fatigue_state, raw_ear_avg) if eye_valid else fatigue_state.ear_avg
 
         fatigue_state.ear_left  = raw_ear_left
         fatigue_state.ear_right = raw_ear_right
         fatigue_state.ear_avg   = ear_avg
-        fatigue_state.ear_history.append(ear_avg)
+        if eye_valid:
+            fatigue_state.ear_history.append(ear_avg)
 
         # ── Personal EAR baseline: collect open-eye samples ───────────────
         # Floor is deliberately low (below typical open-eye EAR) so users
         # with naturally smaller/narrower eyes still accumulate enough
         # samples to personalise — 0.15 still excludes genuine blinks/closures.
-        if not self._personal_ear_valid and ear_avg > 0.15:
+        calibration_completed = False
+        if not self._personal_ear_valid and eye_valid and ear_avg > 0.15:
             self._personal_ear_samples.append(ear_avg)
             if len(self._personal_ear_samples) >= _MIN_EAR_BASELINE_SAMPLES:
                 sorted_s = sorted(self._personal_ear_samples)
@@ -190,20 +244,48 @@ class FaceEyeAnalyzer:
                     self.config.PERSONAL_EAR_BASELINE = p75
                     self.config.PERSONAL_EAR_VALID = True
                     save_config(self.config)
+                    calibration_completed = True
+                    self._reset_eye_evidence(fatigue_state, now)
 
         # Adaptive thresholds: personal baseline when available, else config fallback
         if self._personal_ear_valid:
-            ear_threshold = max(0.15, self._personal_ear_baseline * 0.65)
+            ear_threshold = max(0.15, self._personal_ear_baseline * 0.70)
             drowsy_ear_avg = self._personal_ear_baseline * 0.87
         else:
             ear_threshold = self.config.EAR_THRESHOLD
             drowsy_ear_avg = self.config.DROWSY_EAR_AVG
 
-        fatigue_state.eye_closed_history.append(ear_avg < ear_threshold)
-        fatigue_state.perclos = (
-            sum(fatigue_state.eye_closed_history) / len(fatigue_state.eye_closed_history)
-            if fatigue_state.eye_closed_history else 0.0
+        detection_ready = (
+            self._personal_ear_valid
+            and getattr(posture_state, "calibration_progress", 0.0) >= 100.0
+            and not calibration_completed
         )
+
+        if detection_ready and eye_valid:
+            left_closed = raw_ear_left < ear_threshold
+            right_closed = raw_ear_right < ear_threshold
+            both_closed = left_closed and right_closed
+            both_open = not left_closed and not right_closed
+
+            if both_closed:
+                fatigue_state.eye_closed_history.append(True)
+                self._update_perclos(fatigue_state, now, True)
+                if self._eye_state != "closed":
+                    self._eye_state = "closed"
+                    self._eye_closed_since = now
+                closed_duration = now - (self._eye_closed_since or now)
+                self._prolonged_closure = closed_duration >= self.config.PROLONGED_EYE_CLOSURE_SECONDS
+            elif both_open:
+                fatigue_state.eye_closed_history.append(False)
+                self._update_perclos(fatigue_state, now, False)
+                if self._eye_state == "closed" and self._eye_closed_since is not None:
+                    closed_duration = now - self._eye_closed_since
+                    if self.config.BLINK_MIN_CLOSED_SECONDS <= closed_duration <= self.config.BLINK_MAX_CLOSED_SECONDS:
+                        fatigue_state.blink_count += 1
+                        fatigue_state.blink_times.append(now)
+                self._eye_state = "open"
+                self._eye_closed_since = None
+                self._prolonged_closure = False
 
         # Nose-relative drop is more stable than whole-face Y movement.
         face_center_y = (max(ys) + min(ys)) / 2.0
@@ -238,15 +320,7 @@ class FaceEyeAnalyzer:
         self._prev_face_y = face_center_y
         self._prev_face_size = raw_face_size
 
-        # ── 2. Blink detection (on smoothed EAR) ──────────────────────────
-        now = time.time()
-        if ear_avg < ear_threshold:
-            fatigue_state.consec_below_threshold += 1
-        else:
-            if fatigue_state.consec_below_threshold >= self.config.EAR_CONSEC_FRAMES:
-                fatigue_state.blink_count += 1
-                fatigue_state.blink_times.append(now)
-            fatigue_state.consec_below_threshold = 0
+        # ── 2. Blink rate from timestamp-confirmed blink events ───────────
 
         # Trim old blink timestamps
         cutoff = now - self.config.BLINK_WINDOW_SECONDS
@@ -256,8 +330,8 @@ class FaceEyeAnalyzer:
         # Blink rate (blinks/min) — only once minimum observation window elapsed
         session_elapsed = now - fatigue_state.session_start
         if fatigue_state.blink_times and session_elapsed >= self.config.BLINK_RATE_MIN_SECONDS:
-            span = min(now - fatigue_state.blink_times[0], self.config.BLINK_WINDOW_SECONDS)
-            fatigue_state.blink_rate = (len(fatigue_state.blink_times) / span * 60.0) if span > 5 else 0.0
+            span = min(session_elapsed, self.config.BLINK_WINDOW_SECONDS)
+            fatigue_state.blink_rate = len(fatigue_state.blink_times) / span * 60.0
         else:
             fatigue_state.blink_rate = 0.0
 
@@ -304,10 +378,12 @@ class FaceEyeAnalyzer:
         # Gate ALL drowsiness checks behind the minimum observation window.
         # During the first N seconds, face detection is warming up and EAR
         # values are unreliable — skip drowsiness entirely.
-        if session_elapsed < self.config.BLINK_RATE_MIN_SECONDS:
+        if not detection_ready or session_elapsed < self.config.BLINK_RATE_MIN_SECONDS:
             fatigue_state.is_drowsy = False
             fatigue_state.drowsy_start = 0.0
             fatigue_state.fatigue_score = 0
+            fatigue_state.fatigue_confidence = 0.0
+            self._drowsy_flag.reset()
             return fatigue_state, posture_state, landmarks
 
         history_avg = (
@@ -355,9 +431,9 @@ class FaceEyeAnalyzer:
             fatigue_state.blink_rate,
         )
 
-        score_signal = fatigue_state.fatigue_score >= 60
         perclos_signal = fatigue_state.perclos >= 0.30 or (ear_low and fatigue_state.perclos >= 0.18)
         blink_signal = blink_bad and fatigue_state.perclos >= 0.12
+        closure_signal = self._prolonged_closure
         yawn_signal = recent_yawns >= 3
         nod_signal = recent_nods >= 3
         fatigue_state.nod_confidence = min(1.0, recent_nods / 3.0)
@@ -383,10 +459,12 @@ class FaceEyeAnalyzer:
         # unrelated to fatigue (talking, stretching, reading posture), so
         # either alone is not enough — only count them once they corroborate
         # each other.
-        eye_evidence = perclos_signal or blink_signal
-        secondary_signal_count = int(yawn_signal) + int(nod_signal)
-        drowsy_raw = eye_evidence or score_signal or secondary_signal_count >= 2
-        fatigue_state.is_drowsy = self._drowsy_flag.update(drowsy_raw)
+        signal_count = sum(
+            int(signal)
+            for signal in (perclos_signal, closure_signal, blink_signal, yawn_signal, nod_signal)
+        )
+        drowsy_raw = signal_count >= 2
+        fatigue_state.is_drowsy = self._drowsy_flag.update(drowsy_raw, time.monotonic())
         if fatigue_state.is_drowsy and not was_drowsy:
             fatigue_state.drowsy_start = now
         elif not fatigue_state.is_drowsy:
@@ -440,6 +518,9 @@ class FaceEyeAnalyzer:
         self._nod_pending_start = 0.0
         self._last_face_seen = time.time()
         self._yawn_frontal_frames = 0
+        self._eye_state = "open"
+        self._eye_closed_since = None
+        self._prolonged_closure = False
         self._too_close_flag.reset()
         self._yawn_flag.reset()
         self._drowsy_flag.reset()

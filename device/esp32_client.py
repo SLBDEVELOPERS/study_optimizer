@@ -111,24 +111,39 @@ class ESP32Communicator:
                 return False
 
     def posture_buzz(self):
-        sent = self.send({"action": "buzzer", "pattern": "posture", "duration_ms": 500, "repeats": 3})
+        sent = self.send({"action": "buzzer", "pattern": "posture", "repeats": 3})
         logger.info("[ESP32] Posture buzz -> %s", "sent" if sent else "simulated")
         return sent
 
     def drowsy_buzz(self):
-        sent = self.send({"action": "buzzer", "pattern": "drowsy", "duration_ms": 1000, "repeats": 2})
+        sent = self.send({"action": "buzzer", "pattern": "drowsy", "repeats": 2})
         logger.info("[ESP32] Drowsy buzz -> %s", "sent" if sent else "simulated")
         return sent
 
     def set_fan(self, enabled: bool) -> bool:
-        sent = self.send({"action": "fan", "state": "on" if enabled else "off"})
+        # Keep the wire type boolean; the firmware consumes this as a bool.
+        sent = self.send({"action": "fan", "state": bool(enabled)})
         logger.info("[ESP32] Fan -> %s", "sent" if sent else "simulated")
         return sent
 
     def set_lamp_brightness(self, brightness: int) -> bool:
-        sent = self.send({"action": "lamp", "brightness": brightness})
+        sent = self.send({"action": "lamp", "brightness": max(0, min(100, int(brightness)))})
         logger.info("[ESP32] Lamp brightness -> %s", "sent" if sent else "simulated")
         return sent
+
+    def break_buzz(self):
+        sent = self.send({"action": "buzzer", "pattern": "break", "repeats": 2})
+        logger.info("[ESP32] Break reminder -> %s", "sent" if sent else "simulated")
+        return sent
+
+    def clear_posture_alert(self) -> bool:
+        return self.send({"action": "posture_ok"})
+
+    def clear_fatigue_alert(self) -> bool:
+        return self.send({"action": "fatigue_ok"})
+
+    def clear_alerts(self) -> bool:
+        return self.send({"action": "reset_alerts"})
 
     def ping(self) -> bool:
         if self.config.ESP32_MODE == "serial":

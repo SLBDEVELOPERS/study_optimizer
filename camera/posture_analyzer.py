@@ -9,7 +9,7 @@ from mediapipe.tasks.python import vision as mp_vision
 from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions
 
 from camera.scoring import calculate_posture_score, threshold_confidence
-from camera.temporal import TemporalFlag
+from camera.temporal import TemporalDurationFlag
 from config import save_config
 
 
@@ -74,10 +74,18 @@ class PostureAnalyzer:
         self._smooth_vert_ratio: float = 0.5  # start neutral
         self._smooth_back_lean_angle: float = 0.0
         self._smooth_torso_z_delta: float = 0.0
-        self._shoulder_flag = TemporalFlag(config.POSTURE_CONFIRM_FRAMES, config.POSTURE_RECOVERY_FRAMES)
-        self._head_drop_flag = TemporalFlag(config.POSTURE_CONFIRM_FRAMES, config.POSTURE_RECOVERY_FRAMES)
-        self._forward_head_flag = TemporalFlag(config.POSTURE_CONFIRM_FRAMES, config.POSTURE_RECOVERY_FRAMES)
-        self._back_lean_flag = TemporalFlag(config.POSTURE_CONFIRM_FRAMES, config.POSTURE_RECOVERY_FRAMES)
+        self._shoulder_flag = TemporalDurationFlag(
+            config.POSTURE_DETECT_CONFIRM_SECONDS, config.POSTURE_DETECT_RECOVERY_SECONDS
+        )
+        self._head_drop_flag = TemporalDurationFlag(
+            config.POSTURE_DETECT_CONFIRM_SECONDS, config.POSTURE_DETECT_RECOVERY_SECONDS
+        )
+        self._forward_head_flag = TemporalDurationFlag(
+            config.POSTURE_DETECT_CONFIRM_SECONDS, config.POSTURE_DETECT_RECOVERY_SECONDS
+        )
+        self._back_lean_flag = TemporalDurationFlag(
+            config.POSTURE_DETECT_CONFIRM_SECONDS, config.POSTURE_DETECT_RECOVERY_SECONDS
+        )
 
         # ── Baseline calibration ───────────────────────────────────────────
         self._calibration_samples: list[dict] = []
@@ -110,12 +118,12 @@ class PostureAnalyzer:
     def _calibrate(self):
         if not self._calibration_samples:
             return
-        n = len(self._calibration_samples)
-        self._baseline_z_delta_ratio = sum(s["z"] for s in self._calibration_samples) / n
-        self._baseline_vert_ratio = sum(s["v"] for s in self._calibration_samples) / n
-        self._baseline_ear_z_delta = sum(s["ez"] for s in self._calibration_samples) / n
+        # Median baselines resist transient landmark jumps and partial movement.
+        self._baseline_z_delta_ratio = float(np.median([s["z"] for s in self._calibration_samples]))
+        self._baseline_vert_ratio = float(np.median([s["v"] for s in self._calibration_samples]))
+        self._baseline_ear_z_delta = float(np.median([s["ez"] for s in self._calibration_samples]))
         torso_samples = [s["tz"] for s in self._calibration_samples if s["tz"] is not None]
-        self._baseline_torso_z = sum(torso_samples) / len(torso_samples) if torso_samples else 0.0
+        self._baseline_torso_z = float(np.median(torso_samples)) if torso_samples else 0.0
         self._calibrated = True
         self.config.POSTURE_BASELINE_Z = self._baseline_z_delta_ratio
         self.config.POSTURE_BASELINE_V = self._baseline_vert_ratio

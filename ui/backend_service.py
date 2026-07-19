@@ -4,6 +4,7 @@ from collections import deque
 import json
 from pathlib import Path
 import re
+import threading
 import time
 
 import cv2
@@ -35,12 +36,18 @@ class AlertManager:
     def __init__(self, config, esp32):
         self.config = config
         self.esp32 = esp32
+        self._posture_was_bad = False
+        self._fatigue_was_bad = False
 
     def check(self, state):
         now = time.time()
         posture = state.posture
         fatigue = state.fatigue
         bad_posture = posture.is_slouching or posture.is_forward_head or posture.is_too_close
+
+        if self._posture_was_bad and not bad_posture:
+            self.esp32.clear_posture_alert()
+        self._posture_was_bad = bad_posture
 
         if bad_posture:
             if posture.bad_posture_start == 0:
@@ -53,12 +60,18 @@ class AlertManager:
                 posture.alert_count += 1
                 state.total_alerts += 1
                 if self.config.SILENT_MODE:
+                    self.esp32.posture_buzz()
                     state.device.last_command_status = "Posture alert recorded in silent mode"
                 else:
                     sent = self.esp32.posture_buzz()
                     state.device.last_command_status = "Posture alert sent" if sent else "Posture alert simulated"
         else:
             posture.bad_posture_start = 0
+
+        fatigue_bad = self.config.FATIGUE_ALERT_ENABLED and fatigue.is_drowsy
+        if self._fatigue_was_bad and not fatigue_bad:
+            self.esp32.clear_fatigue_alert()
+        self._fatigue_was_bad = fatigue_bad
 
         if not self.config.FATIGUE_ALERT_ENABLED:
             return
@@ -73,6 +86,7 @@ class AlertManager:
             fatigue.alert_count += 1
             state.total_alerts += 1
             if self.config.SILENT_MODE:
+                self.esp32.drowsy_buzz()
                 state.device.last_command_status = "Fatigue alert recorded in silent mode"
             else:
                 sent = self.esp32.drowsy_buzz()
@@ -83,6 +97,7 @@ class BackendService(QObject):
     status_updated = Signal(str)
     preview_updated = Signal(str)
     reports_updated = Signal(str)
+    device_status_received = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -98,6 +113,8 @@ class BackendService(QObject):
 
         self.esp32 = pair_device(self.config)
         self.state.esp32_connected = self.esp32.connected
+        if self.state.esp32_connected:
+            self.esp32.push_settings(build_device_settings_payload(self.config))
         self.pose_analyzer = PostureAnalyzer(self.config.POSE_MODEL, self.config)
         self.face_analyzer = FaceEyeAnalyzer(self.config.FACE_MODEL, self.config)
         self.alerts = AlertManager(self.config, self.esp32)
@@ -121,6 +138,13 @@ class BackendService(QObject):
         self.mobile_api = MobileApiServer(self)
         self.mobile_api.start()
         logger.info("Mobile API listening on http://0.0.0.0:8765")
+
+        self._device_poll_running = False
+        self.device_status_received.connect(self.apply_device_status)
+        self.device_poll_timer = QTimer(self)
+        self.device_poll_timer.timeout.connect(self.poll_device_status)
+        self.device_poll_timer.start(2_000)
+        self.poll_device_status()
 
         self.frame_timer = QTimer(self)
         self.frame_timer.timeout.connect(self.process_frame)
@@ -316,20 +340,9 @@ class BackendService(QObject):
         self.state.environment.room_light_status = "Low" if brightness < 42 else "Good"
 
     def run_automation(self):
-        if not self.config.AUTO_MODE:
-            return
-
-        if self.config.AUTO_LAMP:
-            target_lamp = 85 if self.state.environment.room_light_status == "Low" else 35
-            if target_lamp != self.state.device.lamp_brightness:
-                self.state.device.lamp_brightness = target_lamp
-                self.esp32.set_lamp_brightness(target_lamp)
-
-        if self.config.AUTO_FAN:
-            target_fan = self.state.environment.temperature_c >= 30 or self.state.fatigue.is_drowsy
-            if target_fan != self.state.device.fan_on:
-                self.state.device.fan_on = target_fan
-                self.esp32.set_fan(target_fan)
+        # The ESP32 owns automatic fan/lamp control using its DHT22 and LDR.
+        # The desktop only sends settings/manual overrides and displays status.
+        return
 
     def format_posture_detail(self) -> str:
         posture = self.state.posture
@@ -485,6 +498,8 @@ class BackendService(QObject):
         self.esp32 = pair_device(self.config)
         self.alerts = AlertManager(self.config, self.esp32)
         self.state.esp32_connected = self.esp32.connected
+        if self.state.esp32_connected:
+            self.esp32.push_settings(build_device_settings_payload(self.config))
         self.state.device.paired_device_name = "ESP32 Desk Node" if self.state.esp32_connected else "Simulation Device"
         self.state.device.last_command_status = "Pairing updated"
         save_config(self.config)
@@ -526,13 +541,34 @@ class BackendService(QObject):
 
     def refresh_device_status(self):
         status = self.esp32.get_status()
+        self.apply_device_status(status)
+
+    def poll_device_status(self):
+        """Fetch ESP32 sensors without blocking the Qt camera/UI thread."""
+        if self._device_poll_running:
+            return
+        self._device_poll_running = True
+
+        def fetch():
+            try:
+                self.device_status_received.emit(self.esp32.get_status())
+            finally:
+                self._device_poll_running = False
+
+        threading.Thread(target=fetch, name="esp32-status", daemon=True).start()
+
+    def apply_device_status(self, status: dict):
         self.state.esp32_connected = bool(status.get("connected"))
         if self.state.esp32_connected:
             self.state.device.last_command_status = "Device reachable"
             self.state.device.paired_device_name = status.get("device_name", "ESP32 Desk Node")
-            self.state.device.fan_on = status.get("fan_on", self.state.device.fan_on)
-            self.state.device.lamp_brightness = status.get("lamp_brightness", self.state.device.lamp_brightness)
-            self.state.environment.temperature_c = status.get("temperature_c", self.state.environment.temperature_c)
+            self.state.device.fan_on = status.get("fan_on", status.get("fan", self.state.device.fan_on))
+            self.state.device.lamp_brightness = status.get(
+                "lamp_brightness", status.get("lamp_pct", self.state.device.lamp_brightness)
+            )
+            self.state.environment.temperature_c = status.get(
+                "temperature_c", status.get("temperature", self.state.environment.temperature_c)
+            )
         else:
             self.state.device.last_command_status = "Simulation mode"
         self.emit_status()
@@ -540,7 +576,6 @@ class BackendService(QObject):
     def apply_settings(self, payload: dict):
         old_camera_index = self.config.CAMERA_INDEX
         self.config.update_from_user_settings(payload)
-        self.state.environment.temperature_c = self.config.DEFAULT_TEMPERATURE_C
         self.state.device.auto_mode = self.config.AUTO_MODE
         self.state.device.silent_mode = self.config.SILENT_MODE
 
@@ -553,6 +588,8 @@ class BackendService(QObject):
             self.cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
 
         save_config(self.config)
+        if self.state.esp32_connected:
+            self.esp32.push_settings(build_device_settings_payload(self.config))
         self.state.device.last_command_status = "Settings applied"
         self.emit_status()
 
@@ -561,6 +598,8 @@ class BackendService(QObject):
         self.state.device.auto_mode = self.config.AUTO_MODE
         self.state.device.last_command_status = "Auto mode enabled" if self.config.AUTO_MODE else "Manual mode enabled"
         save_config(self.config)
+        if self.state.esp32_connected:
+            self.esp32.push_settings(build_device_settings_payload(self.config))
         self.emit_status()
 
     def toggle_camera(self):
@@ -597,6 +636,8 @@ class BackendService(QObject):
         self.state.device.silent_mode = self.config.SILENT_MODE
         self.state.device.last_command_status = "Silent mode enabled" if self.config.SILENT_MODE else "Silent mode disabled"
         save_config(self.config)
+        if self.state.esp32_connected:
+            self.esp32.push_settings(build_device_settings_payload(self.config))
         self.emit_status()
 
     def toggle_fan(self):
@@ -606,6 +647,7 @@ class BackendService(QObject):
         self.emit_status()
 
     def set_lamp_brightness(self, brightness: int):
+        brightness = max(0, min(100, int(brightness)))
         self.state.device.lamp_brightness = brightness
         self.config.DEFAULT_LAMP_BRIGHTNESS = brightness
         sent = self.esp32.set_lamp_brightness(brightness)
@@ -657,12 +699,14 @@ class BackendService(QObject):
         self.state.fatigue.yawn_times.clear()
         self.state.fatigue.nod_times.clear()
         self.state.fatigue.eye_closed_history.clear()
+        self.state.fatigue.eye_observations.clear()
         self.state.device.last_command_status = "Calibration reset — sit in good posture"
         self.emit_status()
 
     def trigger_posture_alert(self):
         if self.config.SILENT_MODE:
-            self.state.device.last_command_status = "Silent mode skipped posture buzzer"
+            sent = self.esp32.posture_buzz()
+            self.state.device.last_command_status = "Silent posture alert sent" if sent else "Posture test simulated"
         else:
             sent = self.esp32.posture_buzz()
             self.state.device.last_command_status = "Posture test sent" if sent else "Posture test simulated"
@@ -670,7 +714,8 @@ class BackendService(QObject):
 
     def trigger_drowsy_alert(self):
         if self.config.SILENT_MODE:
-            self.state.device.last_command_status = "Silent mode skipped drowsy buzzer"
+            sent = self.esp32.drowsy_buzz()
+            self.state.device.last_command_status = "Silent fatigue alert sent" if sent else "Drowsy test simulated"
         else:
             sent = self.esp32.drowsy_buzz()
             self.state.device.last_command_status = "Drowsy test sent" if sent else "Drowsy test simulated"
@@ -682,7 +727,11 @@ class BackendService(QObject):
             return
         self.state.last_break_at = time.time()
         self.state.break_due = True
-        self.state.device.last_command_status = "Break reminder is due"
+        sent = self.esp32.break_buzz()
+        if self.config.SILENT_MODE:
+            self.state.device.last_command_status = "Break reminder is due (silent mode)"
+        else:
+            self.state.device.last_command_status = "Break reminder sent" if sent else "Break reminder simulated"
         self.emit_status()
 
     def save_session_report(self):
@@ -697,11 +746,13 @@ class BackendService(QObject):
     def shutdown(self):
         self.frame_timer.stop()
         self.break_timer.stop()
+        self.device_poll_timer.stop()
         self.save_session_report()
         if self.cap.isOpened():
             self.cap.release()
         self.pose_analyzer.close()
         self.face_analyzer.close()
+        self.esp32.clear_alerts()
         self.esp32.close()
         self.mobile_api.stop()
         

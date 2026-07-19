@@ -50,6 +50,7 @@
 #define PROVISION_PREFS_NS "wifi"
 
 Preferences wifiPrefs;
+Preferences settingsPrefs;
 DNSServer   dnsServer;
 const byte  DNS_PORT = 53;
 bool        provisioningMode = false;
@@ -84,8 +85,9 @@ bool        provisioningMode = false;
 #define LUX_GOOD       300
 
 // ── Buzzer Tones ──────────────────────────────────────────────
-#define BUZZ_POSTURE_HZ   1500
-#define BUZZ_DROWSY_HZ    1800
+#define BUZZ_POSTURE_HZ   1400
+#define BUZZ_DROWSY_HZ    2100
+#define BUZZ_BREAK_HZ     1100
 #define BUZZ_STARTUP_HZ1  1000
 #define BUZZ_STARTUP_HZ2  1500
 #define BUZZ_ON_MS        500
@@ -122,6 +124,28 @@ int   lampPct          = 0;       // FIX #5: 0–100 percentage (separate)
 // When true, auto-control won't overwrite the manual setting
 bool  manualFanOverride  = false;
 bool  manualLampOverride = false;
+bool  autoMode            = true;
+bool  autoFanEnabled      = true;
+bool  autoLampEnabled     = true;
+bool  silentMode          = false;
+
+void loadDeviceSettings() {
+  settingsPrefs.begin("settings", true);
+  autoMode        = settingsPrefs.getBool("auto_mode", true);
+  autoFanEnabled  = settingsPrefs.getBool("auto_fan", true);
+  autoLampEnabled = settingsPrefs.getBool("auto_lamp", true);
+  silentMode      = settingsPrefs.getBool("silent", false);
+  settingsPrefs.end();
+}
+
+void saveDeviceSettings() {
+  settingsPrefs.begin("settings", false);
+  settingsPrefs.putBool("auto_mode", autoMode);
+  settingsPrefs.putBool("auto_fan", autoFanEnabled);
+  settingsPrefs.putBool("auto_lamp", autoLampEnabled);
+  settingsPrefs.putBool("silent", silentMode);
+  settingsPrefs.end();
+}
 
 // ─────────────────────────────────────────────────────────────
 // Alert State
@@ -132,7 +156,7 @@ bool fatigueAlert = false;
 // ─────────────────────────────────────────────────────────────
 // Non-blocking Buzzer State Machine  (FIX #1 + FIX #2)
 // ─────────────────────────────────────────────────────────────
-enum BuzzMode { BUZZ_IDLE, BUZZ_POSTURE, BUZZ_DROWSY, BUZZ_STARTUP };
+enum BuzzMode { BUZZ_IDLE, BUZZ_POSTURE, BUZZ_DROWSY, BUZZ_BREAK, BUZZ_STARTUP };
 
 struct {
   BuzzMode      mode    = BUZZ_IDLE;
@@ -140,16 +164,20 @@ struct {
   int           totalSteps = 0;   // repeats × 2 (on+off pairs)
   unsigned long nextAt  = 0;
   int           hz      = 1500;
+  unsigned long onMs    = BUZZ_ON_MS;
+  unsigned long offMs   = BUZZ_OFF_MS;
 } buzzer;
 
 bool isBuzzerActive() { return buzzer.mode != BUZZ_IDLE; }
 
-void startBuzz(BuzzMode mode, int hz, int repeats) {
+void startBuzz(BuzzMode mode, int hz, int repeats, unsigned long onMs, unsigned long offMs) {
   buzzer.mode       = mode;
   buzzer.hz         = hz;
   buzzer.step       = 0;
-  buzzer.totalSteps = repeats * 2;  // each repeat = 1 on + 1 off
+  buzzer.totalSteps = constrain(repeats, 1, 10) * 2;
   buzzer.nextAt     = millis();     // start immediately
+  buzzer.onMs       = constrain(onMs, 50UL, 2000UL);
+  buzzer.offMs      = constrain(offMs, 50UL, 2000UL);
 }
 
 // Called every loop() — no delay() anywhere  (FIX #1)
@@ -161,10 +189,10 @@ void handleBuzzer() {
 
   if (isOn) {
     tone(BUZZER_PIN, buzzer.hz);        // FIX #2: tone() not digitalWrite
-    buzzer.nextAt = millis() + BUZZ_ON_MS;
+    buzzer.nextAt = millis() + buzzer.onMs;
   } else {
     noTone(BUZZER_PIN);
-    buzzer.nextAt = millis() + BUZZ_OFF_MS;
+    buzzer.nextAt = millis() + buzzer.offMs;
   }
 
   buzzer.step++;
@@ -364,25 +392,63 @@ void handlePing() {
 }
 
 void handleStatus() {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<768> doc;
 
   doc["temperature"]    = temperature;
+  doc["temperature_c"]  = temperature;
   doc["humidity"]       = humidity;
   doc["lux"]            = lux;
   doc["fan"]            = fanState;
+  doc["fan_on"]         = fanState;
   doc["lamp_pwm"]       = lampPWM;       // FIX #5: raw PWM
   doc["lamp_pct"]       = lampPct;       // FIX #5: percentage
+  doc["lamp_brightness"] = lampPct;
+  doc["device_name"]    = "ESP32 Desk Node";
   doc["buzzer_active"]  = isBuzzerActive(); // FIX #6: real-time state
   doc["posture_alert"]  = postureAlert;
   doc["fatigue_alert"]  = fatigueAlert;
   doc["manual_fan"]     = manualFanOverride;
   doc["manual_lamp"]    = manualLampOverride;
+  doc["auto_mode"]      = autoMode;
+  doc["auto_fan"]       = autoFanEnabled;
+  doc["auto_lamp"]      = autoLampEnabled;
+  doc["silent_mode"]    = silentMode;
   doc["wifi_rssi"]      = WiFi.RSSI();
   doc["ip"]             = WiFi.localIP().toString();
 
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
+}
+
+void handleSettings() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"No body\"}");
+    return;
+  }
+
+  StaticJsonDocument<512> doc;
+  DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+
+  autoMode        = doc["auto_mode"] | autoMode;
+  autoFanEnabled  = doc["auto_fan"] | autoFanEnabled;
+  autoLampEnabled = doc["auto_lamp"] | autoLampEnabled;
+  silentMode      = doc["silent_mode"] | silentMode;
+  saveDeviceSettings();
+
+  // Enabling automatic control explicitly releases earlier manual overrides.
+  if (autoMode && autoFanEnabled)  manualFanOverride = false;
+  if (autoMode && autoLampEnabled) manualLampOverride = false;
+  if (silentMode) {
+    noTone(BUZZER_PIN);
+    buzzer.mode = BUZZ_IDLE;
+  }
+
+  server.send(200, "application/json", "{\"result\":\"ok\"}");
 }
 
 void handleCommand() {
@@ -409,20 +475,30 @@ void handleCommand() {
     if (pattern == "posture") {
       postureAlert = true;
       digitalWrite(LED_POSTURE, HIGH);
-      startBuzz(BUZZ_POSTURE, BUZZ_POSTURE_HZ, repeats);  // FIX #1: non-blocking
+      // Short triple pulse: a gentle posture correction cue.
+      if (!silentMode) startBuzz(BUZZ_POSTURE, BUZZ_POSTURE_HZ, repeats, 180, 150);
 
     } else if (pattern == "drowsy") {
       fatigueAlert = true;
       digitalWrite(LED_POSTURE, HIGH);
-      startBuzz(BUZZ_DROWSY, BUZZ_DROWSY_HZ, repeats);    // FIX #1: non-blocking
+      // Long high-pitched pulse: urgent and distinct from posture.
+      if (!silentMode) startBuzz(BUZZ_DROWSY, BUZZ_DROWSY_HZ, repeats, 800, 250);
+    } else if (pattern == "break") {
+      // Gentle double pulse; it does not latch the posture/fatigue LED.
+      if (!silentMode) startBuzz(BUZZ_BREAK, BUZZ_BREAK_HZ, repeats, 250, 300);
     }
   }
 
   // ── Posture OK ──────────────────────────────────────────
   else if (action == "posture_ok") {
     postureAlert = false;
+    digitalWrite(LED_POSTURE, fatigueAlert ? HIGH : LOW);
+  }
+
+  // Fatigue recovered; keep the shared alert LED on if posture is still bad.
+  else if (action == "fatigue_ok") {
     fatigueAlert = false;
-    digitalWrite(LED_POSTURE, LOW);
+    digitalWrite(LED_POSTURE, postureAlert ? HIGH : LOW);
   }
 
   // ── Silent ──────────────────────────────────────────────
@@ -446,9 +522,9 @@ void handleCommand() {
 
   // ── Lamp manual ─────────────────────────────────────────
   else if (action == "lamp") {
-    int brightness = doc["brightness"] | 0;
+    int brightness = constrain(doc["brightness"] | 0, 0, 100);
     manualLampOverride = true;          // FIX #3: lock out auto-control
-    setLamp(brightness);
+    setLamp(map(brightness, 0, 100, 0, 255));
   }
 
   // ── Lamp auto ───────────────────────────────────────────
@@ -487,7 +563,7 @@ void readSensors() {
 // Auto-Control  (FIX #3: checks override flags)
 // ─────────────────────────────────────────────────────────────
 void autoControlLamp() {
-  if (manualLampOverride) return;     // FIX #3: skip if manual
+  if (!autoMode || !autoLampEnabled || manualLampOverride) return;
 
   if      (lux < LUX_LOW)  setLamp(255);
   else if (lux < LUX_GOOD) setLamp(102);
@@ -495,10 +571,10 @@ void autoControlLamp() {
 }
 
 void autoControlFan() {
-  if (manualFanOverride) return;      // FIX #3: skip if manual
+  if (!autoMode || !autoFanEnabled || manualFanOverride) return;
 
-  if (temperature >= TEMP_FAN_ON  && !fanState) setFan(true);
-  if (temperature <= TEMP_FAN_OFF &&  fanState) setFan(false);
+  if ((temperature >= TEMP_FAN_ON || fatigueAlert) && !fanState) setFan(true);
+  if (temperature <= TEMP_FAN_OFF && !fatigueAlert && fanState) setFan(false);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -532,6 +608,7 @@ void setupServer() {
   server.on("/ping",       HTTP_GET,  handlePing);
   server.on("/status",     HTTP_GET,  handleStatus);
   server.on("/command",    HTTP_POST, handleCommand);
+  server.on("/settings",   HTTP_POST, handleSettings);
   server.on("/wifi/reset", HTTP_POST, handleWifiReset);
   server.begin();
   Serial.println("HTTP Server started");
@@ -564,6 +641,7 @@ void setup() {
   // LDR — analog input, no special init needed
   pinMode(LDR_PIN, INPUT);
   dht.begin();
+  loadDeviceSettings();
 
   // LED Lamp PWM
 ledcAttach(LAMP_PIN, PWM_FREQ, PWM_RES);   // single call, no channel needed
